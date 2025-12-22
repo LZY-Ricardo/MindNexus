@@ -5,6 +5,9 @@
 * **Type:** Electron Desktop Application (Local-First RAG Knowledge Base)
 * **Language:** JavaScript (ES6+), **No TypeScript**.
 
+## Development Conventions
+- 代码注释统一使用中文（简体）。
+
 ## Core Technology Stack
 | Layer | Technology | Version/Note |
 | :--- | :--- | :--- |
