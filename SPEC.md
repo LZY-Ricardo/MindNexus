@@ -1,38 +1,43 @@
 # Project Spec: MindNexus (Final MVP Edition)
 
 ## 1. 项目概览 (Project Overview)
+
 **MindNexus** 是一个基于 **Electron** 的本地优先（Local-First）桌面端个人知识库应用。
 它采用 **双窗口架构**（主窗口+悬浮窗），利用 **RAG（检索增强生成）** 技术，实现对本地文件（PDF/Word/Markdown）的自动读取、碎片化存储和语义检索。
 
 **核心约束 (Constraints):**
-* **语言:** 纯 **JavaScript (ES6+)**，不要使用 TypeScript。
-* **架构:** Electron 双进程架构（Main Process + Renderer Process）。
-* **AI 交互:** **严禁使用 LangChain**。必须使用原生 `fetch` 调用本地 Ollama 接口，使用自定义函数进行文本切片。
-* **数据隐私:** 所有数据处理在本地完成。
+
+- **语言:** 纯 **JavaScript (ES6+)**，不要使用 TypeScript。
+- **架构:** Electron 双进程架构（Main Process + Renderer Process）。
+- **AI 交互:** **严禁使用 LangChain**。必须使用原生 `fetch` 调用本地 Ollama 接口，使用自定义函数进行文本切片。
+- **数据隐私:** 所有数据处理在本地完成。
 
 ---
 
 ## 2. 技术栈详细选型 (Tech Stack)
 
 ### 2.1 核心框架
-* **Runtime:** Electron (Latest Stable)
-* **Build Tool:** `electron-vite` (React模板)
-* **UI Framework:** React 18+
-* **UI Library:** `shadcn/ui` (基于 Radix UI) + `Tailwind CSS`
-* **Icons:** `lucide-react`
+
+- **Runtime:** Electron (Latest Stable)
+- **Build Tool:** `electron-vite` (React模板)
+- **UI Framework:** React 18+
+- **UI Library:** `shadcn/ui` (基于 Radix UI) + `Tailwind CSS`
+- **Icons:** `lucide-react`
 
 ### 2.2 后端 (Main Process)
-* **Environment:** Node.js
-* **Metadata DB:** `better-sqlite3` (用于存文件列表、设置)
-* **Vector DB:** `@lancedb/lancedb` (用于存向量数据)
-* **Embedding:** `@xenova/transformers` (模型: `all-MiniLM-L6-v2`)
-* **File Parsing:** `pdf-parse` (PDF), `mammoth` (Word), `fs` (Markdown/Text)
+
+- **Environment:** Node.js
+- **Metadata DB:** `better-sqlite3` (用于存文件列表、设置)
+- **Vector DB:** `@lancedb/lancedb` (用于存向量数据)
+- **Embedding:** `@xenova/transformers` (模型: `all-MiniLM-L6-v2`)
+- **File Parsing:** `pdf-parse` (PDF), `mammoth` (Word), `fs` (Markdown/Text)
 
 ---
 
 ## 3. 数据库设计 (Database Schema)
 
 ### 3.1 SQLite (Metadata)
+
 文件位置: `userData/database.sqlite`
 
 ```sql
@@ -56,11 +61,11 @@ CREATE TABLE IF NOT EXISTS files (
 
 **Schema 定义:**
 
-* `id`: String (Chunk UUID)
-* `vector`: Vector (384维)
-* `text`: String (切片后的文本内容)
-* `source_id`: String (关联 files.uuid)
-* `metadata`: JSON (包含页码、来源路径等)
+- `id`: String (Chunk UUID)
+- `vector`: Vector (384维)
+- `text`: String (切片后的文本内容)
+- `source_id`: String (关联 files.uuid)
+- `metadata`: JSON (包含页码、来源路径等)
 
 ---
 
@@ -95,12 +100,12 @@ CREATE TABLE IF NOT EXISTS files (
 1. **Main:** 将用户问题 (Query) 转为 vector。
 2. **Search:** 在 LanceDB 搜索最相似的 top 5 个 chunks。
 3. **Prompt:** 拼接字符串：
-`"基于以下上下文回答问题:\n上下文: ${chunks.join('\n')}\n问题: ${query}"`
+   `"基于以下上下文回答问题:\n上下文: ${chunks.join('\n')}\n问题: ${query}"`
 4. **Inference:** 使用原生 `fetch` 请求本地 Ollama:
-* URL: `http://localhost:11434/api/chat`
-* Method: `POST`
-* Body: `{ model: "llama3", messages: [...], stream: true }`
 
+- URL: `http://localhost:11434/api/chat`
+- Method: `POST`
+- Body: `{ model: "llama3", messages: [...], stream: true }`
 
 5. **Stream:** 读取 response body流，通过 `IPC:CHAT_TOKEN` 逐字发回前端。
 
@@ -139,5 +144,7 @@ src/
 2. **依赖安装:** 安装 `better-sqlite3`, `@lancedb/lancedb`, `@xenova/transformers`, `pdf-parse`, `mammoth`, `lucide-react`, `clsx`, `tailwind-merge`。
 3. **配置别名:** 配置 Vite 使得 `@` 指向 `src/renderer/src`。
 4. **优先实现:** 请先编写 `src/main/database.js` 和 `src/main/ipc.js` 的基础骨架，确保主进程能成功启动并连接 SQLite。
+
+```
 
 ```
