@@ -13,7 +13,7 @@ const INVOKE_CHANNELS = [
   'rag:chat-start'
 ]
 
-const EVENT_CHANNELS = ['rag:chat-token']
+const EVENT_CHANNELS = ['rag:chat-token', 'file:process-progress']
 
 const api = {
   invoke: (channel, payload) => {
@@ -25,7 +25,11 @@ const api = {
   setSize: (width, height) => ipcRenderer.invoke('win:set-size', { width, height }),
   openMain: () => ipcRenderer.invoke('win:open-main'),
 
-  processFile: (filePath) => ipcRenderer.invoke('file:process', { filePath }),
+  processFile: (input) => {
+    if (typeof input === 'string') return ipcRenderer.invoke('file:process', { filePath: input })
+    if (input && typeof input === 'object') return ipcRenderer.invoke('file:process', input)
+    throw new Error('processFile 参数无效')
+  },
   listFiles: (limit = 50) => ipcRenderer.invoke('file:list', { limit }),
   deleteFile: (uuid) => ipcRenderer.invoke('file:delete', { uuid }),
 

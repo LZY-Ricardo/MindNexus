@@ -46,6 +46,7 @@
     - Query LanceDB for top 5 closest chunks.
 2.  **Prompt Construction:**
     - Template:
+
       ```text
       You are a helpful knowledge assistant.
       Context:
@@ -55,6 +56,7 @@
 
       Answer based ONLY on the context above. If unsure, say "I don't know".
       ```
+
 3.  **Inference Phase:**
     - Send the constructed prompt to **Ollama** (`POST http://localhost:11434/api/chat`).
     - Enable `stream: true`.

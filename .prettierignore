@@ -1,6 +1,5 @@
 out
 dist
-src/renderer/my-app
 pnpm-lock.yaml
 LICENSE.md
 tsconfig.json

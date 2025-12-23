@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initDatabase } from './database'
 import { setupIPC } from './ipc'
+import { embedText, initEmbeddings } from './services/embeddings'
 
 function createWindow() {
   // 创建浏览器窗口
@@ -62,6 +63,16 @@ app.whenReady().then(async () => {
   ipcMain.on('ping', () => console.log('pong'))
 
   createWindow()
+
+  // 预热向量服务：避免首次拖拽导入时长时间等待
+  void (async () => {
+    try {
+      const backend = await initEmbeddings()
+      if (backend === 'ollama') await embedText('warmup')
+    } catch (error) {
+      console.error('[embeddings] warmup failed', error)
+    }
+  })()
 
   app.on('activate', function () {
     // 在 macOS 上，当点击 Dock 图标且没有其他窗口打开时

@@ -1,7 +1,30 @@
-import { ipcMain } from 'electron'
+import { app, ipcMain } from 'electron'
+import { db, initDatabase, vectorStore } from './database'
 import { processFile } from './services/ingestor'
 import { search } from './services/search'
 import { chatStream } from './services/llm'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
+
+function sanitizeFileName(name) {
+  const raw = String(name ?? '')
+  let out = ''
+  for (const ch of raw) {
+    const code = ch.charCodeAt(0)
+    if (code < 32) continue
+    out += '<>:"/\\|?*'.includes(ch) ? '_' : ch
+  }
+  return out.replaceAll(/\s+/g, ' ').trim()
+}
+
+function toBuffer(data) {
+  if (!data) return Buffer.alloc(0)
+  if (Buffer.isBuffer(data)) return data
+  if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data))
+  if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+  return Buffer.from(data)
+}
 
 let initialized = false
 
@@ -23,20 +46,102 @@ export function setupIPC() {
   })
 
   // B. 文件系统与导入 (file)
-  ipcMain.handle('file:process', async (_event, payload) => {
+  ipcMain.handle('file:process', async (event, payload) => {
     const filePath = payload?.filePath
-    if (!filePath) return { success: false, uuid: '', message: 'filePath 不能为空' }
-    return await processFile(filePath)
+    let resolvedPath = typeof filePath === 'string' ? filePath : ''
+
+    // 兼容：部分拖拽来源拿不到 File.path（例如浏览器/应用内拖拽）。
+    // 这时前端会传 { fileName, data(ArrayBuffer/Uint8Array/Buffer) }，主进程先落盘再走索引。
+    if (!resolvedPath) {
+      const fileName = sanitizeFileName(payload?.fileName || payload?.name)
+      const data = payload?.data
+      if (!fileName || !data) {
+        return {
+          success: false,
+          uuid: '',
+          message: '无法获取文件路径（请从系统文件管理器拖拽本地文件）'
+        }
+      }
+
+      try {
+        const importsDir = join(app.getPath('userData'), 'imports')
+        mkdirSync(importsDir, { recursive: true })
+
+        const fileId = randomUUID()
+        const fileDir = join(importsDir, fileId)
+        mkdirSync(fileDir, { recursive: true })
+
+        const targetPath = join(fileDir, fileName)
+        writeFileSync(targetPath, toBuffer(data))
+        resolvedPath = targetPath
+      } catch (error) {
+        return {
+          success: false,
+          uuid: '',
+          message: `保存拖拽文件失败: ${String(error?.message || error)}`
+        }
+      }
+    }
+
+    const sender = event.sender
+    const onProgress = (progress) => {
+      try {
+        sender.send('file:process-progress', progress)
+      } catch {
+        // 忽略发送失败（例如窗口已关闭）
+      }
+    }
+
+    return await processFile(resolvedPath, onProgress)
   })
 
   ipcMain.handle('file:list', async (_event, payload) => {
-    console.log('[ipc] file:list (not implemented yet)', payload)
-    return []
+    await initDatabase()
+
+    const limit = Number(payload?.limit ?? 50)
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 500) : 50
+
+    const rows = db
+      .prepare(
+        `SELECT uuid, name, path, type, size, status, created_at
+         FROM files
+         ORDER BY created_at DESC
+         LIMIT ?`
+      )
+      .all(safeLimit)
+
+    return rows
   })
 
   ipcMain.handle('file:delete', async (_event, payload) => {
-    console.log('[ipc] file:delete (not implemented yet)', payload)
-    return { success: true, message: 'Not implemented yet' }
+    await initDatabase()
+
+    const uuid = String(payload?.uuid ?? '').trim()
+    if (!uuid) return { success: false, message: 'uuid 不能为空' }
+
+    try {
+      try {
+        const table = await vectorStore?.openTable?.('knowledge')
+        if (table?.delete) {
+          const escaped = uuid.replaceAll('"', '""')
+          await table.delete(`source_uuid = "${escaped}"`)
+        }
+      } catch (error) {
+        const message = String(error?.message || error).toLowerCase()
+        const notFound =
+          message.includes('not found') ||
+          message.includes('does not exist') ||
+          message.includes('no such table') ||
+          message.includes('unknown table')
+        if (!notFound) throw error
+      }
+
+      db.prepare(`DELETE FROM files WHERE uuid = ?`).run(uuid)
+      return { success: true }
+    } catch (error) {
+      console.error('[ipc] file:delete failed', error)
+      return { success: false, message: String(error?.message || error) }
+    }
   })
 
   // C. 知识库与 AI (rag)
