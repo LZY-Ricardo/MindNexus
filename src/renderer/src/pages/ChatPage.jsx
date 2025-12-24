@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import MessageBubble from '@/components/MessageBubble'
 import { toast } from '@/hooks/use-toast'
 import { useStore } from '@/lib/store'
-import { cn } from '@/lib/utils'
 
 export default function ChatPage() {
   const ollamaModel = useStore((s) => s.ollamaModel)
@@ -44,6 +44,24 @@ export default function ChatPage() {
   }, [updateLastAssistantMessage])
 
   useEffect(() => {
+    const off = window.api.on('rag:sources', (data) => {
+      const sources = Array.isArray(data) ? data : []
+
+      const history = useStore.getState().currentChatHistory
+      const last = history[history.length - 1]
+
+      if (last?.role === 'assistant') {
+        updateLastAssistantMessage((prev) => ({ ...prev, sources }))
+        return
+      }
+
+      appendChatMessage({ role: 'assistant', content: '', sources })
+    })
+
+    return () => off?.()
+  }, [appendChatMessage, updateLastAssistantMessage])
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
   }, [messages])
 
@@ -53,7 +71,7 @@ export default function ChatPage() {
 
     setInput('')
     appendChatMessage({ role: 'user', content: q })
-    appendChatMessage({ role: 'assistant', content: '' })
+    appendChatMessage({ role: 'assistant', content: '', sources: [] })
     setStreaming(true)
 
     try {
@@ -82,24 +100,15 @@ export default function ChatPage() {
             <div className="text-sm text-muted-foreground">输入问题并发送，开始 RAG 对话。</div>
           )}
 
-          {messages.map((m, idx) => {
-            const role = m?.role
-            const isUser = role === 'user'
-
-            return (
-              <div key={idx} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
-                <div
-                  className={cn(
-                    'max-w-[80%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm leading-6',
-                    isUser ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'
-                  )}
-                >
-                  {m?.content ||
-                    (role === 'assistant' && streaming && idx === messages.length - 1 ? '...' : '')}
-                </div>
-              </div>
-            )
-          })}
+          {messages.map((m, idx) => (
+            <MessageBubble
+              key={idx}
+              message={m}
+              sources={m?.sources}
+              streaming={streaming}
+              isLast={idx === messages.length - 1}
+            />
+          ))}
 
           <div ref={bottomRef} />
         </div>

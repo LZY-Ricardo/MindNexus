@@ -52,10 +52,16 @@ export async function search(query, limit = 5) {
     if (typeof row?.score === 'number') score = row.score
     else if (typeof distance === 'number') score = 1 - distance
 
+    if (typeof score === 'number' && Number.isFinite(score)) {
+      score = Math.max(0, Math.min(1, score))
+    } else {
+      score = null
+    }
+
     return {
-      text: row?.text ?? '',
+      text: String(row?.text ?? ''),
       score,
-      source_uuid: row?.source_uuid ?? ''
+      source_uuid: String(row?.source_uuid ?? '').trim()
     }
   })
 }

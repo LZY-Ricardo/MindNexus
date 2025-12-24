@@ -160,7 +160,49 @@ export function setupIPC() {
       const model = payload?.model ?? 'llama3'
       const history = Array.isArray(payload?.history) ? payload.history : []
 
+      await initDatabase()
+
       const chunks = await search(query, 5)
+
+      // 在开始生成前先通知前端本次检索命中的来源文件（去重，取 Top 3）
+      const sourcesByUuid = new Map()
+      for (const chunk of chunks) {
+        const uuid = String(chunk?.source_uuid ?? '').trim()
+        if (!uuid) continue
+
+        const score =
+          typeof chunk?.score === 'number' && Number.isFinite(chunk.score) ? chunk.score : null
+
+        const existing = sourcesByUuid.get(uuid)
+        if (!existing) {
+          sourcesByUuid.set(uuid, { uuid, score })
+          continue
+        }
+
+        if (score != null && (existing.score == null || score > existing.score)) {
+          sourcesByUuid.set(uuid, { uuid, score })
+        }
+      }
+
+      const sourceList = Array.from(sourcesByUuid.values())
+        .sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
+        .slice(0, 3)
+
+      const nameStmt = db.prepare(`SELECT name FROM files WHERE uuid = ?`)
+      const sources = sourceList.map((item) => {
+        const row = nameStmt.get(item.uuid)
+        return {
+          fileName: String(row?.name ?? 'Unknown file'),
+          uuid: item.uuid,
+          score: item.score
+        }
+      })
+
+      try {
+        sender.send('rag:sources', sources)
+      } catch {
+        // 忽略发送失败（例如窗口已关闭）
+      }
       const prompt = [
         'You are a helpful knowledge assistant.',
         'Context:',

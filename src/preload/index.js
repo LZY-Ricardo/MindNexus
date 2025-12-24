@@ -13,7 +13,7 @@ const INVOKE_CHANNELS = [
   'rag:chat-start'
 ]
 
-const EVENT_CHANNELS = ['rag:chat-token', 'file:process-progress']
+const EVENT_CHANNELS = ['rag:chat-token', 'rag:sources', 'file:process-progress']
 
 const api = {
   invoke: (channel, payload) => {
