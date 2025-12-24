@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: mind-nexus
+appId: com.mindnexus.app
+productName: MindNexus
 directories:
   buildResources: build
 files:
@@ -10,8 +10,14 @@ files:
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
 asarUnpack:
   - resources/**
+asar: true
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
 win:
-  executableName: mind-nexus
+  target:
+    - nsis
+  executableName: MindNexus
+  signAndEditExecutable: false
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

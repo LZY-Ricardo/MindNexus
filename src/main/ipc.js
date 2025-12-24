@@ -1,4 +1,4 @@
-import { app, ipcMain } from 'electron'
+import { app, ipcMain, shell } from 'electron'
 import { db, initDatabase, vectorStore } from './database'
 import { processFile } from './services/ingestor'
 import { search } from './services/search'
@@ -111,6 +111,30 @@ export function setupIPC() {
       .all(safeLimit)
 
     return rows
+  })
+
+  ipcMain.handle('file:open', async (_event, payload) => {
+    await initDatabase()
+
+    const uuid = String(payload?.uuid ?? '').trim()
+    if (!uuid) return false
+
+    try {
+      const row = db.prepare(`SELECT path FROM files WHERE uuid = ?`).get(uuid)
+      const filePath = String(row?.path ?? '').trim()
+      if (!filePath) return false
+
+      const result = await shell.openPath(filePath)
+      if (result) {
+        console.error('[ipc] file:open failed', result)
+        return false
+      }
+
+      return true
+    } catch (error) {
+      console.error('[ipc] file:open failed', error)
+      return false
+    }
   })
 
   ipcMain.handle('file:delete', async (_event, payload) => {

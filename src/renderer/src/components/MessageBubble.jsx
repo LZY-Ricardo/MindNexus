@@ -4,6 +4,7 @@ import rehypeHighlight from 'rehype-highlight'
 
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 
 export default function MessageBubble({ message, sources, isLast, streaming }) {
@@ -14,6 +15,27 @@ export default function MessageBubble({ message, sources, isLast, streaming }) {
   const displayContent = content || (role === 'assistant' && streaming && isLast ? '...' : '')
   const sourceList = Array.isArray(sources) ? sources : []
   const shouldShowSources = sourceList.length > 0 && content.trim().length > 0
+
+  const openSource = async (source) => {
+    const uuid = String(source?.uuid ?? '').trim()
+    if (!uuid) return
+
+    const pending = toast({ title: '正在打开文件...' })
+    try {
+      const ok = await window.api.invoke('file:open', { uuid })
+      pending.dismiss()
+      if (!ok) {
+        toast({ variant: 'destructive', title: '打开失败', description: '无法打开该文件' })
+      }
+    } catch (error) {
+      pending.dismiss()
+      toast({
+        variant: 'destructive',
+        title: '打开失败',
+        description: String(error?.message || error)
+      })
+    }
+  }
 
   return (
     <div className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
@@ -39,7 +61,12 @@ export default function MessageBubble({ message, sources, isLast, streaming }) {
                 <div className="mt-3 text-xs text-muted-foreground">参考来源:</div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {sourceList.map((item) => (
-                    <Badge key={String(item?.uuid ?? item?.fileName)} variant="secondary">
+                    <Badge
+                      key={String(item?.uuid ?? item?.fileName)}
+                      variant="secondary"
+                      className="cursor-pointer hover:bg-secondary/80"
+                      onClick={() => openSource(item)}
+                    >
                       {String(item?.fileName ?? item?.uuid ?? '')}
                     </Badge>
                   ))}

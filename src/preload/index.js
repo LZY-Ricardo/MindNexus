@@ -7,6 +7,7 @@ const INVOKE_CHANNELS = [
   'win:set-size',
   'win:open-main',
   'file:process',
+  'file:open',
   'file:list',
   'file:delete',
   'rag:search',
