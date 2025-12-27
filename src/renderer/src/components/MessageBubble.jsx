@@ -14,7 +14,25 @@ export default function MessageBubble({ message, sources, isLast, streaming }) {
   const content = String(message?.content ?? '')
   const displayContent = content || (role === 'assistant' && streaming && isLast ? '...' : '')
   const sourceList = Array.isArray(sources) ? sources : []
-  const shouldShowSources = sourceList.length > 0 && content.trim().length > 0
+
+  // 检测回答是否表示"不知道"或无相关内容，这种情况下不应显示来源
+  const isNoAnswerResponse = (() => {
+    const lowerContent = content.toLowerCase()
+    const noAnswerPatterns = [
+      "i don't know",
+      "i do not know",
+      "没有找到",
+      "暂时没有找到",
+      "无法回答",
+      "不确定",
+      "没有相关",
+      "没有足够的信息",
+      "无法确定"
+    ]
+    return noAnswerPatterns.some(pattern => lowerContent.includes(pattern))
+  })()
+
+  const shouldShowSources = sourceList.length > 0 && content.trim().length > 0 && !isNoAnswerResponse
 
   const openSource = async (source) => {
     const uuid = String(source?.uuid ?? '').trim()

@@ -224,8 +224,14 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
         .sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
         .slice(0, 3)
 
-      // 无检索结果时直接返回友好提示，不调用 LLM
-      if (chunks.length === 0) {
+      // 计算最高相似度分数，判断检索质量
+      const maxScore = chunks.length > 0
+        ? Math.max(...chunks.map(c => typeof c?.score === 'number' ? c.score : 0))
+        : 0
+      const hasRelevantContent = chunks.length > 0 && maxScore > 0.5 // 相似度阈值 0.5（提高门槛以减少无关结果）
+
+      // 无有效检索结果时直接返回友好提示，不调用 LLM
+      if (!hasRelevantContent) {
         try {
           sender.send('rag:sources', [])
         } catch {
@@ -254,13 +260,17 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
         // 忽略发送失败（例如窗口已关闭）
       }
       const prompt = [
-        'You are a helpful knowledge assistant.',
-        'Context:',
+        '你是一个专业的知识助手，基于用户的笔记和文档来回答问题。',
+        '请使用中文回答。',
+        '',
+        '以下是相关的参考资料：',
+        '---',
         chunks.map((c) => c.text).join('\n---\n'),
+        '---',
         '',
-        `User Question: ${query}`,
+        `用户问题：${query}`,
         '',
-        `Answer based ONLY on the context above. If unsure, say "I don't know".`
+        '请根据上述参考资料回答问题。如果参考资料中没有足够的信息来回答这个问题，请诚实地告诉用户"根据我的知识库，暂时没有找到与此问题直接相关的内容"，并建议用户可以补充相关资料。'
       ].join('\n')
 
       const messages = [
