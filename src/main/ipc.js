@@ -28,20 +28,32 @@ function toBuffer(data) {
 
 let initialized = false
 
-export function setupIPC() {
+export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow } = {}) {
   if (initialized) return
   initialized = true
 
   // A. 窗口管理 (win)
   ipcMain.handle('win:toggle-float', async () => {
+    if (typeof toggleFloatWindow === 'function') {
+      return await toggleFloatWindow()
+    }
+
     console.log('[ipc] win:toggle-float (not implemented yet)')
   })
 
   ipcMain.handle('win:set-size', async (_event, payload) => {
+    if (typeof setFloatWindowSize === 'function') {
+      return await setFloatWindowSize(payload?.width, payload?.height)
+    }
+
     console.log('[ipc] win:set-size (not implemented yet)', payload)
   })
 
   ipcMain.handle('win:open-main', async () => {
+    if (typeof showMainWindow === 'function') {
+      return await showMainWindow()
+    }
+
     console.log('[ipc] win:open-main (not implemented yet)')
   })
 
@@ -211,6 +223,20 @@ export function setupIPC() {
       const sourceList = Array.from(sourcesByUuid.values())
         .sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
         .slice(0, 3)
+
+      // 无检索结果时直接返回友好提示，不调用 LLM
+      if (chunks.length === 0) {
+        try {
+          sender.send('rag:sources', [])
+        } catch {
+          // 忽略发送失败
+        }
+        const noResultMsg =
+          '我在您的笔记中没有找到与这个问题相关的内容。\n\n您可以：\n• 尝试换一种问法\n• 将相关文件拖入知识库\n• 检查知识库是否已包含相关笔记'
+        sender.send('rag:chat-token', { token: noResultMsg, done: false })
+        sender.send('rag:chat-token', { token: '', done: true })
+        return
+      }
 
       const nameStmt = db.prepare(`SELECT name FROM files WHERE uuid = ?`)
       const sources = sourceList.map((item) => {
