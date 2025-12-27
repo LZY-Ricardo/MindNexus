@@ -1,4 +1,14 @@
-import { app, shell, BrowserWindow, ipcMain, Menu, Tray, nativeImage, screen } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  Tray,
+  nativeImage,
+  screen,
+  globalShortcut
+} from 'electron'
 import { join } from 'path'
 import { existsSync } from 'node:fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -83,16 +93,17 @@ function createFloatWindow() {
   if (floatWindow && !floatWindow.isDestroyed()) return floatWindow
 
   const { workArea } = screen.getPrimaryDisplay()
-  const size = 60
-  const x = Math.round(workArea.x + workArea.width - 100)
-  const y = Math.round(workArea.y + workArea.height * 0.5 - size * 0.5)
+  const width = 280
+  const height = 220
+  const x = Math.round(workArea.x + workArea.width - width - 24)
+  const y = Math.round(workArea.y + workArea.height * 0.5 - height * 0.5)
 
   // 根据平台选择图标格式
   const windowIcon = process.platform === 'win32' ? iconWin : icon
 
   floatWindow = new BrowserWindow({
-    width: size,
-    height: size,
+    width,
+    height,
     show: false,
     frame: false,
     transparent: true,
@@ -158,6 +169,11 @@ function setFloatWindowSize(width, height) {
 function openFloatContextMenu() {
   const win = createFloatWindow()
   const menu = Menu.buildFromTemplate([
+    {
+      label: '打开主界面',
+      click: () => showMainWindow()
+    },
+    { type: 'separator' },
     { label: '隐藏悬浮球', click: () => win.hide() },
     { label: '退出', role: 'quit' }
   ])
@@ -217,6 +233,10 @@ app.on('before-quit', () => {
   isQuitting = true
 })
 
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
+})
+
 const gotTheLock = app.requestSingleInstanceLock()
 
 if (!gotTheLock) {
@@ -260,6 +280,16 @@ if (!gotTheLock) {
 
     createWindow()
     createTray()
+    openFloatWindow()
+
+    const shortcutOk = globalShortcut.register('CommandOrControl+K', () => {
+      showMainWindow()
+      const win = createWindow()
+      win.webContents.send('app:navigate', '/search')
+    })
+    if (!shortcutOk) {
+      console.warn('[shortcut] 注册失败: CommandOrControl+K')
+    }
 
     // 预热向量服务：避免首次拖拽导入时长时间等待
     void (async () => {

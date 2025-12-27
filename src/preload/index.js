@@ -11,11 +11,33 @@ const INVOKE_CHANNELS = [
   'file:open',
   'file:list',
   'file:delete',
+  'file:move',
+  'file:set-tags',
+  'kb:list',
+  'kb:create',
+  'kb:update',
+  'kb:delete',
+  'kb:set-default',
+  'session:list',
+  'session:create',
+  'session:update',
+  'session:delete',
+  'session:messages',
+  'session:add-message',
+  'session:update-message',
+  'search:query',
+  'analytics:overview',
+  'backup:list',
+  'backup:create',
+  'backup:restore',
+  'backup:delete',
+  'settings:get',
+  'settings:set',
   'rag:search',
   'rag:chat-start'
 ]
 
-const EVENT_CHANNELS = ['rag:chat-token', 'rag:sources', 'file:process-progress']
+const EVENT_CHANNELS = ['rag:chat-token', 'rag:sources', 'file:process-progress', 'app:navigate']
 
 const api = {
   invoke: (channel, payload) => {

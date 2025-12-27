@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { PDFParse } from 'pdf-parse'
 import mammoth from 'mammoth'
 
-import { db, initDatabase, vectorStore } from '../database'
+import { db, initDatabase, vectorStore, isFtsEnabled } from '../database'
 import { embedText, initEmbeddings } from './embeddings'
 
 /**
@@ -67,8 +67,36 @@ function detectFileType(filePath) {
   return null
 }
 
+async function ensureKnowledgeTableSchema(table) {
+  if (!table?.schema) return null
+  const schema = await table.schema()
+  const fields = new Set(schema?.fields?.map((field) => field.name) || [])
+  if (!fields.has('kb_id')) {
+    try {
+      await table.addColumns([{ name: 'kb_id', valueSql: "'default'" }])
+      const nextSchema = await table.schema()
+      return new Set(nextSchema?.fields?.map((field) => field.name) || [])
+    } catch (error) {
+      console.warn('[ingestor] 补充 kb_id 字段失败', error)
+    }
+  }
+  return fields
+}
+
+function pickFields(record, fields) {
+  if (!fields) return record
+  const next = {}
+  for (const key of Object.keys(record)) {
+    if (fields.has(key)) next[key] = record[key]
+  }
+  return next
+}
+
 async function extractText(filePath, type) {
   if (type === 'pdf') {
+    if (typeof PDFParse !== 'function') {
+      throw new Error('pdf-parse 加载失败，请检查依赖安装')
+    }
     const parser = new PDFParse({ data: readFileSync(filePath) })
     try {
       const result = await parser.getText()
@@ -128,7 +156,24 @@ async function getOrCreateKnowledgeTable(initialRecords) {
  * @param {string} filePath
  * @param {(progress: IngestProgress) => void} [onProgress]
  */
-export async function processFile(filePath, onProgress) {
+function normalizeTags(tags) {
+  if (!tags) return '[]'
+  if (Array.isArray(tags)) {
+    return JSON.stringify(tags.map((tag) => String(tag).trim()).filter(Boolean))
+  }
+  if (typeof tags === 'string') {
+    const list = tags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+    return JSON.stringify(list)
+  }
+  return '[]'
+}
+
+export async function processFile(filePath, options = {}, onProgress) {
+  const kbId = String(options?.kbId || 'default').trim() || 'default'
+  const tagsJson = normalizeTags(options?.tags)
   const type = detectFileType(filePath)
   if (!type) {
     return {
@@ -172,22 +217,43 @@ export async function processFile(filePath, onProgress) {
 
     const stat = statSync(filePath)
 
-    db.prepare(
-      `INSERT INTO files (uuid, name, path, type, size, status)
-       VALUES (@uuid, @name, @path, @type, @size, @status)`
+    const insertResult = db.prepare(
+      `INSERT INTO files (uuid, name, path, type, size, status, kb_id, tags)
+       VALUES (@uuid, @name, @path, @type, @size, @status, @kb_id, @tags)`
     ).run({
       uuid: fileUuid,
       name,
       path: filePath,
       type,
       size: stat.size,
-      status: 'processing'
+      status: 'processing',
+      kb_id: kbId,
+      tags: tagsJson
     })
+    const fileRowId = Number(insertResult?.lastInsertRowid || 0)
 
     safeReport({ stage: 'metadata', progress: 10, message: '写入文件元数据' })
 
     const text = await extractText(filePath, type)
     safeReport({ stage: 'extract', progress: 25, message: '文本提取完成' })
+
+    if (isFtsEnabled()) {
+      try {
+        const content = String(text ?? '').slice(0, 200000)
+        db.prepare(
+          `INSERT INTO files_fts (rowid, name, content, tags)
+           VALUES (@rowid, @name, @content, @tags)`
+        ).run({
+          rowid: fileRowId,
+          name,
+          content,
+          tags: tagsJson
+        })
+      } catch (error) {
+        console.warn('[ingestor] 写入 FTS 失败', error)
+      }
+    }
+
     const chunks = splitText(text)
     safeReport({ stage: 'split', progress: 35, message: `文本切分完成（${chunks.length} 段）` })
 
@@ -217,26 +283,37 @@ export async function processFile(filePath, onProgress) {
       message: `向量服务就绪（${embeddingBackend === 'ollama' ? 'Ollama embeddings' : 'Transformers.js'}）`
     })
 
-    const batchSize = 32
-    const notifyEvery = Math.max(1, Math.floor(chunks.length / 20))
-    let table = null
-    let tableCreated = false
-    let batch = []
+  const batchSize = 32
+  const notifyEvery = Math.max(1, Math.floor(chunks.length / 20))
+  let table = null
+  let tableCreated = false
+  let tableFields = null
+  let batch = []
 
-    const flushBatch = async () => {
-      if (!batch.length) return
+  const flushBatch = async () => {
+    if (!batch.length) return
 
-      if (!table) {
-        const res = await getOrCreateKnowledgeTable(batch)
-        table = res.table
-        tableCreated = res.created
-        if (!tableCreated) await table.add(batch)
-      } else {
-        await table.add(batch)
+    if (!table) {
+      const res = await getOrCreateKnowledgeTable(batch)
+      table = res.table
+      tableCreated = res.created
+      if (!tableCreated) {
+        if (!tableFields) {
+          tableFields = await ensureKnowledgeTableSchema(table)
+        }
+        const safeBatch = tableFields ? batch.map((item) => pickFields(item, tableFields)) : batch
+        await table.add(safeBatch)
       }
-
-      batch = []
+    } else {
+      if (!tableFields) {
+        tableFields = await ensureKnowledgeTableSchema(table)
+      }
+      const safeBatch = tableFields ? batch.map((item) => pickFields(item, tableFields)) : batch
+      await table.add(safeBatch)
     }
+
+    batch = []
+  }
 
     for (let i = 0; i < chunks.length; i += 1) {
       const chunk = chunks[i]
@@ -246,6 +323,7 @@ export async function processFile(filePath, onProgress) {
         vector,
         text: chunk,
         source_uuid: fileUuid,
+        kb_id: kbId,
         metadata: { chunk_index: i }
       })
 

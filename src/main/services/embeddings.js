@@ -1,12 +1,16 @@
 import { pipeline } from '@xenova/transformers'
+import { getConfig } from '../config'
 
 let extractorPromise = null
 let backendPromise = null
 
-const OLLAMA_EMBED_URL = 'http://localhost:11434/api/embeddings'
-const DEFAULT_EMBEDDING_BACKEND = process.env.MINDNEXUS_EMBEDDINGS_BACKEND || 'ollama'
-const DEFAULT_OLLAMA_EMBED_MODEL =
-  process.env.MINDNEXUS_OLLAMA_EMBED_MODEL || 'nomic-embed-text:latest'
+const DEFAULT_OLLAMA_URL = 'http://localhost:11434'
+
+function getEmbedUrl() {
+  const config = getConfig()
+  const base = String(config?.ollamaUrl || DEFAULT_OLLAMA_URL).replace(/\/+$/, '')
+  return `${base}/api/embeddings`
+}
 
 /**
  * 获取并复用 Embedding 管道（首次会下载/初始化模型，后续复用）。
@@ -25,11 +29,12 @@ export async function getEmbeddingPipeline() {
  * @param {'transformers'|'ollama'|'auto'} [preferred]
  * @returns {Promise<'transformers'|'ollama'>}
  */
-export async function initEmbeddings(preferred = DEFAULT_EMBEDDING_BACKEND) {
+export async function initEmbeddings(preferred) {
   if (backendPromise) return backendPromise
 
   backendPromise = (async () => {
-    const want = String(preferred || 'auto').toLowerCase()
+    const config = getConfig()
+    const want = String(preferred || config?.embeddingsBackend || 'auto').toLowerCase()
 
     if (want === 'transformers') {
       await getEmbeddingPipeline()
@@ -54,11 +59,18 @@ export async function initEmbeddings(preferred = DEFAULT_EMBEDDING_BACKEND) {
   return backendPromise
 }
 
-async function embedWithOllama(text, model = DEFAULT_OLLAMA_EMBED_MODEL) {
-  const response = await fetch(OLLAMA_EMBED_URL, {
+export function resetEmbeddings() {
+  extractorPromise = null
+  backendPromise = null
+}
+
+async function embedWithOllama(text, model) {
+  const config = getConfig()
+  const resolvedModel = String(model || config?.embeddingsModel || 'nomic-embed-text:latest')
+  const response = await fetch(getEmbedUrl(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, prompt: text })
+    body: JSON.stringify({ model: resolvedModel, prompt: text })
   })
 
   if (!response.ok) {

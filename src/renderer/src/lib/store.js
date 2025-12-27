@@ -10,6 +10,18 @@ function getInitialOllamaModel() {
   return 'qwen3:8b'
 }
 
+const DEFAULT_CONFIG = {
+  ollamaUrl: 'http://localhost:11434',
+  ollamaModel: getInitialOllamaModel(),
+  embeddingsBackend: 'ollama',
+  embeddingsModel: 'nomic-embed-text:latest',
+  defaultSearchMode: 'hybrid',
+  sessionHistoryLimit: 50,
+  autoBackup: false,
+  autoBackupInterval: 86400,
+  autoBackupCount: 7
+}
+
 export const useStore = create((set) => ({
   sidebarOpen: true,
   setSidebarOpen: (open) => set({ sidebarOpen: Boolean(open) }),
@@ -17,6 +29,27 @@ export const useStore = create((set) => ({
 
   // Ollama 模型名（例如：qwen3:8b、llama3）
   ollamaModel: getInitialOllamaModel(),
+  config: { ...DEFAULT_CONFIG },
+  loadConfig: async () => {
+    try {
+      const cfg = await window.api?.invoke?.('settings:get')
+      const next = { ...DEFAULT_CONFIG, ...(cfg || {}) }
+      set({ config: next, ollamaModel: next.ollamaModel || DEFAULT_CONFIG.ollamaModel })
+    } catch {
+      // 忽略配置加载失败
+    }
+  },
+  saveConfig: async (partial) => {
+    const res = await window.api?.invoke?.('settings:set', partial)
+    const next = { ...DEFAULT_CONFIG, ...(res?.config || {}) }
+    set({ config: next, ollamaModel: next.ollamaModel || DEFAULT_CONFIG.ollamaModel })
+    try {
+      localStorage.setItem('ollamaModel', next.ollamaModel)
+    } catch {
+      // 忽略 localStorage 写失败
+    }
+    return next
+  },
   setOllamaModel: (model) =>
     set(() => {
       const next = String(model ?? '').trim() || 'qwen3:8b'
@@ -25,8 +58,15 @@ export const useStore = create((set) => ({
       } catch {
         // 忽略 localStorage 写失败
       }
-      return { ollamaModel: next }
+      return { ollamaModel: next, config: { ...DEFAULT_CONFIG, ollamaModel: next } }
     }),
+
+  currentSessionId: null,
+  setCurrentSessionId: (id) => set({ currentSessionId: id || null }),
+  sessions: [],
+  setSessions: (sessions) => set({ sessions: Array.isArray(sessions) ? sessions : [] }),
+  currentKbId: 'default',
+  setCurrentKbId: (id) => set({ currentKbId: id || 'default' }),
 
   // 用于跨页面保留当前会话（role/content 形状兼容后端 history）
   currentChatHistory: [],

@@ -1,11 +1,13 @@
 import { app, ipcMain, shell } from 'electron'
-import { db, initDatabase, vectorStore } from './database'
+import { db, initDatabase, vectorStore, closeDatabase, isFtsEnabled } from './database'
 import { processFile } from './services/ingestor'
+import { resetEmbeddings } from './services/embeddings'
 import { search } from './services/search'
 import { chatStream } from './services/llm'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, cpSync, rmSync, readdirSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { loadConfig, getConfig, setConfig } from './config'
 
 function sanitizeFileName(name) {
   const raw = String(name ?? '')
@@ -27,10 +29,159 @@ function toBuffer(data) {
 }
 
 let initialized = false
+let autoBackupTimer = null
+
+function getBackupRoot() {
+  const root = join(app.getPath('userData'), 'backups')
+  mkdirSync(root, { recursive: true })
+  return root
+}
+
+function formatTimestamp(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, '0')
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    '-',
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds())
+  ].join('')
+}
+
+function listBackups() {
+  const root = getBackupRoot()
+  const entries = readdirSync(root, { withFileTypes: true })
+  return entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const metaPath = join(root, entry.name, 'meta.json')
+      if (!existsSync(metaPath)) return null
+      try {
+        const raw = JSON.parse(Buffer.from(readFileSync(metaPath)).toString('utf8'))
+        return { id: entry.name, ...raw }
+      } catch {
+        return { id: entry.name }
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => String(b?.createdAt || '').localeCompare(String(a?.createdAt || '')))
+}
+
+function copySafe(source, target) {
+  if (!existsSync(source)) return
+  cpSync(source, target, { recursive: true })
+}
+
+function createBackupMeta({ id, note, fileCount, kbCount }) {
+  return {
+    id,
+    note: note || '',
+    fileCount: Number(fileCount || 0),
+    kbCount: Number(kbCount || 0),
+    createdAt: new Date().toISOString()
+  }
+}
+
+async function runBackup(note) {
+  await initDatabase()
+  const id = formatTimestamp()
+  const root = getBackupRoot()
+  const targetDir = join(root, id)
+  mkdirSync(targetDir, { recursive: true })
+
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)')
+  } catch {
+    // 忽略 WAL 不支持或其他错误
+  }
+
+  const dbPath = join(app.getPath('userData'), 'database.sqlite')
+  const vectorsPath = join(app.getPath('userData'), 'vectors')
+  copySafe(dbPath, join(targetDir, 'database.sqlite'))
+  copySafe(vectorsPath, join(targetDir, 'vectors'))
+
+  const fileCount = db.prepare(`SELECT COUNT(*) AS count FROM files`).get()?.count || 0
+  const kbCount = db.prepare(`SELECT COUNT(*) AS count FROM knowledge_bases`).get()?.count || 0
+  const meta = createBackupMeta({ id, note, fileCount, kbCount })
+  writeFileSync(join(targetDir, 'meta.json'), JSON.stringify(meta, null, 2))
+
+  const config = getConfig()
+  const maxCount = Number(config?.autoBackupCount || 7)
+  if (Number.isFinite(maxCount) && maxCount > 0) {
+    const all = listBackups()
+    if (all.length > maxCount) {
+      const toRemove = all.slice(maxCount)
+      for (const item of toRemove) {
+        rmSync(join(root, item.id), { recursive: true, force: true })
+      }
+    }
+  }
+
+  return meta
+}
+
+function scheduleAutoBackup() {
+  if (autoBackupTimer) {
+    clearInterval(autoBackupTimer)
+    autoBackupTimer = null
+  }
+  const config = getConfig()
+  if (!config?.autoBackup) return
+
+  const intervalSec = Number(config?.autoBackupInterval || 86400)
+  if (!Number.isFinite(intervalSec) || intervalSec <= 0) return
+
+  autoBackupTimer = setInterval(() => {
+    runBackup('自动备份').catch((error) => {
+      console.warn('[backup] auto backup failed', error)
+    })
+  }, intervalSec * 1000)
+  autoBackupTimer.unref?.()
+}
+
+async function deleteFileRecord(uuid) {
+  if (!uuid) return { success: false, message: 'uuid 不能为空' }
+
+  try {
+    try {
+      const table = await vectorStore?.openTable?.('knowledge')
+      if (table?.delete) {
+        const escaped = uuid.replaceAll('"', '""')
+        await table.delete(`source_uuid = "${escaped}"`)
+      }
+    } catch (error) {
+      const message = String(error?.message || error).toLowerCase()
+      const notFound =
+        message.includes('not found') ||
+        message.includes('does not exist') ||
+        message.includes('no such table') ||
+        message.includes('unknown table')
+      if (!notFound) throw error
+    }
+
+    const row = db.prepare(`SELECT id FROM files WHERE uuid = ?`).get(uuid)
+    if (row?.id && isFtsEnabled()) {
+      try {
+        db.prepare(`DELETE FROM files_fts WHERE rowid = ?`).run(row.id)
+      } catch (error) {
+        console.warn('[ipc] delete fts failed', error)
+      }
+    }
+
+    db.prepare(`DELETE FROM files WHERE uuid = ?`).run(uuid)
+    return { success: true }
+  } catch (error) {
+    console.error('[ipc] file:delete failed', error)
+    return { success: false, message: String(error?.message || error) }
+  }
+}
 
 export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow } = {}) {
   if (initialized) return
   initialized = true
+  void loadConfig().then(scheduleAutoBackup)
 
   // A. 窗口管理 (win)
   ipcMain.handle('win:toggle-float', async () => {
@@ -61,6 +212,8 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
   ipcMain.handle('file:process', async (event, payload) => {
     const filePath = payload?.filePath
     let resolvedPath = typeof filePath === 'string' ? filePath : ''
+    const kbId = payload?.kbId
+    const tags = payload?.tags
 
     // 兼容：部分拖拽来源拿不到 File.path（例如浏览器/应用内拖拽）。
     // 这时前端会传 { fileName, data(ArrayBuffer/Uint8Array/Buffer) }，主进程先落盘再走索引。
@@ -104,7 +257,7 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
       }
     }
 
-    return await processFile(resolvedPath, onProgress)
+    return await processFile(resolvedPath, { kbId, tags }, onProgress)
   })
 
   ipcMain.handle('file:list', async (_event, payload) => {
@@ -112,17 +265,29 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
 
     const limit = Number(payload?.limit ?? 50)
     const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 500) : 50
+    const kbId = String(payload?.kbId ?? '').trim()
+    const status = String(payload?.status ?? '').trim()
 
-    const rows = db
-      .prepare(
-        `SELECT uuid, name, path, type, size, status, created_at
-         FROM files
-         ORDER BY created_at DESC
-         LIMIT ?`
-      )
-      .all(safeLimit)
+    let sql = `
+      SELECT uuid, name, path, type, size, status, created_at, kb_id, tags
+      FROM files
+      WHERE 1=1
+    `
+    const params = {}
 
-    return rows
+    if (kbId) {
+      sql += ` AND kb_id = @kbId`
+      params.kbId = kbId
+    }
+    if (status) {
+      sql += ` AND status = @status`
+      params.status = status
+    }
+
+    sql += ` ORDER BY created_at DESC LIMIT @limit`
+    params.limit = safeLimit
+
+    return db.prepare(sql).all(params)
   })
 
   ipcMain.handle('file:open', async (_event, payload) => {
@@ -154,30 +319,325 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
 
     const uuid = String(payload?.uuid ?? '').trim()
     if (!uuid) return { success: false, message: 'uuid 不能为空' }
+    return await deleteFileRecord(uuid)
+  })
 
-    try {
-      try {
-        const table = await vectorStore?.openTable?.('knowledge')
-        if (table?.delete) {
-          const escaped = uuid.replaceAll('"', '""')
-          await table.delete(`source_uuid = "${escaped}"`)
+  ipcMain.handle('file:move', async (_event, payload) => {
+    await initDatabase()
+    const uuid = String(payload?.uuid ?? '').trim()
+    const kbId = String(payload?.kbId ?? '').trim()
+    if (!uuid || !kbId) return { success: false, message: '参数不完整' }
+
+    db.prepare(`UPDATE files SET kb_id = @kbId WHERE uuid = @uuid`).run({ kbId, uuid })
+    return { success: true }
+  })
+
+  ipcMain.handle('file:set-tags', async (_event, payload) => {
+    await initDatabase()
+    const uuid = String(payload?.uuid ?? '').trim()
+    const tags = Array.isArray(payload?.tags) ? payload.tags : []
+    if (!uuid) return { success: false, message: 'uuid 不能为空' }
+    const tagsJson = JSON.stringify(tags.map((t) => String(t).trim()).filter(Boolean))
+
+    db.prepare(`UPDATE files SET tags = @tags WHERE uuid = @uuid`).run({ tags: tagsJson, uuid })
+
+    if (isFtsEnabled()) {
+      const row = db.prepare(`SELECT id FROM files WHERE uuid = ?`).get(uuid)
+      if (row?.id) {
+        try {
+          db.prepare(`UPDATE files_fts SET tags = @tags WHERE rowid = @rowid`).run({
+            tags: tagsJson,
+            rowid: row.id
+          })
+        } catch (error) {
+          console.warn('[ipc] update fts tags failed', error)
         }
-      } catch (error) {
-        const message = String(error?.message || error).toLowerCase()
-        const notFound =
-          message.includes('not found') ||
-          message.includes('does not exist') ||
-          message.includes('no such table') ||
-          message.includes('unknown table')
-        if (!notFound) throw error
       }
-
-      db.prepare(`DELETE FROM files WHERE uuid = ?`).run(uuid)
-      return { success: true }
-    } catch (error) {
-      console.error('[ipc] file:delete failed', error)
-      return { success: false, message: String(error?.message || error) }
     }
+
+    return { success: true }
+  })
+
+  ipcMain.handle('kb:list', async () => {
+    await initDatabase()
+    return db
+      .prepare(
+        `SELECT kb.id, kb.name, kb.description, kb.color, kb.created_at, kb.is_default,
+                COUNT(f.uuid) AS file_count
+         FROM knowledge_bases kb
+         LEFT JOIN files f ON f.kb_id = kb.id
+         GROUP BY kb.id
+         ORDER BY kb.created_at DESC`
+      )
+      .all()
+  })
+
+  ipcMain.handle('kb:create', async (_event, payload) => {
+    await initDatabase()
+    const name = String(payload?.name ?? '').trim()
+    if (!name) return { success: false, message: '名称不能为空' }
+    const id = randomUUID()
+    const description = String(payload?.description ?? '').trim()
+    const color = String(payload?.color ?? '').trim() || '#6366f1'
+    db.prepare(
+      `INSERT INTO knowledge_bases (id, name, description, color)
+       VALUES (@id, @name, @description, @color)`
+    ).run({ id, name, description, color })
+    return { success: true, id }
+  })
+
+  ipcMain.handle('kb:update', async (_event, payload) => {
+    await initDatabase()
+    const id = String(payload?.id ?? '').trim()
+    if (!id) return { success: false, message: 'ID 不能为空' }
+    const name = String(payload?.name ?? '').trim()
+    const description = String(payload?.description ?? '').trim()
+    const color = String(payload?.color ?? '').trim()
+
+    db.prepare(
+      `UPDATE knowledge_bases
+       SET name = @name, description = @description, color = @color
+       WHERE id = @id`
+    ).run({ id, name, description, color })
+    return { success: true }
+  })
+
+  ipcMain.handle('kb:set-default', async (_event, payload) => {
+    await initDatabase()
+    const id = String(payload?.id ?? '').trim()
+    if (!id) return { success: false, message: 'ID 不能为空' }
+    db.prepare(`UPDATE knowledge_bases SET is_default = 0`).run()
+    db.prepare(`UPDATE knowledge_bases SET is_default = 1 WHERE id = @id`).run({ id })
+    return { success: true }
+  })
+
+  ipcMain.handle('kb:delete', async (_event, payload) => {
+    await initDatabase()
+    const id = String(payload?.id ?? '').trim()
+    if (!id) return { success: false, message: 'ID 不能为空' }
+    const moveTo = String(payload?.moveTo ?? '').trim()
+
+    if (moveTo) {
+      db.prepare(`UPDATE files SET kb_id = @moveTo WHERE kb_id = @id`).run({ moveTo, id })
+    } else {
+      const rows = db.prepare(`SELECT uuid FROM files WHERE kb_id = ?`).all(id)
+      for (const row of rows) {
+        const uuid = String(row?.uuid ?? '').trim()
+        if (uuid) {
+          await deleteFileRecord(uuid)
+        }
+      }
+    }
+
+    db.prepare(`DELETE FROM knowledge_bases WHERE id = ?`).run(id)
+    return { success: true }
+  })
+
+  ipcMain.handle('session:list', async () => {
+    await initDatabase()
+    return db
+      .prepare(
+        `SELECT s.*, COUNT(m.id) AS message_count
+         FROM chat_sessions s
+         LEFT JOIN chat_messages m ON m.session_id = s.id
+         GROUP BY s.id
+         ORDER BY s.updated_at DESC`
+      )
+      .all()
+  })
+
+  ipcMain.handle('session:create', async (_event, payload) => {
+    await initDatabase()
+    const id = randomUUID()
+    const kbId = String(payload?.kbId ?? '').trim() || null
+    const model = String(payload?.model ?? '').trim() || null
+    const title = String(payload?.title ?? '').trim() || `新对话 ${new Date().toLocaleTimeString()}`
+    db.prepare(
+      `INSERT INTO chat_sessions (id, kb_id, title, model)
+       VALUES (@id, @kb_id, @title, @model)`
+    ).run({ id, kb_id: kbId, title, model })
+    return { success: true, session: { id, kb_id: kbId, title, model } }
+  })
+
+  ipcMain.handle('session:update', async (_event, payload) => {
+    await initDatabase()
+    const id = String(payload?.id ?? '').trim()
+    if (!id) return { success: false, message: 'ID 不能为空' }
+    const titleRaw = payload?.title
+    const modelRaw = payload?.model
+    const kbRaw = payload?.kbId
+    const title = titleRaw == null ? null : String(titleRaw).trim()
+    const model = modelRaw == null ? null : String(modelRaw).trim()
+    const kbId = kbRaw == null ? null : String(kbRaw).trim()
+    db.prepare(
+      `UPDATE chat_sessions
+       SET title = COALESCE(@title, title),
+           model = COALESCE(@model, model),
+           kb_id = COALESCE(@kb_id, kb_id),
+           updated_at = strftime('%s', 'now')
+       WHERE id = @id`
+    ).run({
+      id,
+      title: title || null,
+      model: model || null,
+      kb_id: kbId || null
+    })
+    return { success: true }
+  })
+
+  ipcMain.handle('session:delete', async (_event, payload) => {
+    await initDatabase()
+    const id = String(payload?.id ?? '').trim()
+    if (!id) return { success: false, message: 'ID 不能为空' }
+    db.prepare(`DELETE FROM chat_messages WHERE session_id = @id`).run({ id })
+    db.prepare(`DELETE FROM chat_sessions WHERE id = @id`).run({ id })
+    return { success: true }
+  })
+
+  ipcMain.handle('session:messages', async (_event, payload) => {
+    await initDatabase()
+    const sessionId = String(payload?.sessionId ?? '').trim()
+    if (!sessionId) return []
+    return db
+      .prepare(
+        `SELECT id, role, content, sources, created_at
+         FROM chat_messages
+         WHERE session_id = @sessionId
+         ORDER BY created_at ASC`
+      )
+      .all({ sessionId })
+  })
+
+  ipcMain.handle('session:add-message', async (_event, payload) => {
+    await initDatabase()
+    const sessionId = String(payload?.sessionId ?? '').trim()
+    const role = String(payload?.role ?? '').trim()
+    const content = String(payload?.content ?? '')
+    const sources = payload?.sources ? JSON.stringify(payload.sources) : null
+    if (!sessionId || !role) return { success: false, message: '参数不完整' }
+    const id = randomUUID()
+    db.prepare(
+      `INSERT INTO chat_messages (id, session_id, role, content, sources)
+       VALUES (@id, @sessionId, @role, @content, @sources)`
+    ).run({ id, sessionId, role, content, sources })
+    db.prepare(`UPDATE chat_sessions SET updated_at = strftime('%s', 'now') WHERE id = @id`).run({
+      id: sessionId
+    })
+    return { success: true, id }
+  })
+
+  ipcMain.handle('session:update-message', async (_event, payload) => {
+    await initDatabase()
+    const id = String(payload?.id ?? '').trim()
+    if (!id) return { success: false, message: 'ID 不能为空' }
+    const content = String(payload?.content ?? '')
+    const sources = payload?.sources ? JSON.stringify(payload.sources) : null
+    db.prepare(
+      `UPDATE chat_messages SET content = @content, sources = @sources WHERE id = @id`
+    ).run({ id, content, sources })
+    return { success: true }
+  })
+
+  ipcMain.handle('settings:get', async () => {
+    await loadConfig()
+    return getConfig()
+  })
+
+  ipcMain.handle('settings:set', async (_event, payload) => {
+    const next = await setConfig(payload)
+    resetEmbeddings()
+    scheduleAutoBackup()
+    return { success: true, config: next }
+  })
+
+  ipcMain.handle('analytics:overview', async () => {
+    await initDatabase()
+    const total = db.prepare(`SELECT COUNT(*) AS count FROM files`).get()?.count || 0
+    const indexed = db
+      .prepare(`SELECT COUNT(*) AS count FROM files WHERE status = 'indexed'`)
+      .get()?.count || 0
+    const failed = db
+      .prepare(`SELECT COUNT(*) AS count FROM files WHERE status = 'error'`)
+      .get()?.count || 0
+    const totalSize = db.prepare(`SELECT SUM(size) AS total FROM files`).get()?.total || 0
+    const sessionCount = db.prepare(`SELECT COUNT(*) AS count FROM chat_sessions`).get()?.count || 0
+    const messageCount = db.prepare(`SELECT COUNT(*) AS count FROM chat_messages`).get()?.count || 0
+
+    const byType = db
+      .prepare(
+        `SELECT type, COUNT(*) AS count
+         FROM files
+         GROUP BY type
+         ORDER BY count DESC`
+      )
+      .all()
+
+    const byKb = db
+      .prepare(
+        `SELECT kb_id AS id, COUNT(*) AS count
+         FROM files
+         GROUP BY kb_id
+         ORDER BY count DESC`
+      )
+      .all()
+
+    return {
+      total,
+      indexed,
+      failed,
+      totalSize,
+      sessionCount,
+      messageCount,
+      byType,
+      byKb
+    }
+  })
+
+  ipcMain.handle('search:query', async (_event, payload) => {
+    const query = String(payload?.query ?? '').trim()
+    const options = payload?.options ?? {}
+    return await search(query, options)
+  })
+
+  ipcMain.handle('backup:list', async () => {
+    return listBackups()
+  })
+
+  ipcMain.handle('backup:create', async (_event, payload) => {
+    const note = String(payload?.note ?? '').trim()
+    const meta = await runBackup(note)
+    return { success: true, backup: meta }
+  })
+
+  ipcMain.handle('backup:restore', async (_event, payload) => {
+    const id = String(payload?.id ?? '').trim()
+    if (!id) return { success: false, message: 'ID 不能为空' }
+    const root = getBackupRoot()
+    const sourceDir = join(root, id)
+    if (!existsSync(sourceDir)) return { success: false, message: '备份不存在' }
+
+    await closeDatabase()
+
+    const dbPath = join(app.getPath('userData'), 'database.sqlite')
+    const vectorsPath = join(app.getPath('userData'), 'vectors')
+    rmSync(dbPath, { force: true })
+    rmSync(vectorsPath, { recursive: true, force: true })
+
+    copySafe(join(sourceDir, 'database.sqlite'), dbPath)
+    copySafe(join(sourceDir, 'vectors'), vectorsPath)
+
+    app.relaunch()
+    app.exit(0)
+    return { success: true }
+  })
+
+  ipcMain.handle('backup:delete', async (_event, payload) => {
+    const id = String(payload?.id ?? '').trim()
+    if (!id) return { success: false, message: 'ID 不能为空' }
+    const root = getBackupRoot()
+    const target = join(root, id)
+    rmSync(target, { recursive: true, force: true })
+    return { success: true }
   })
 
   // C. 知识库与 AI (rag)
@@ -185,7 +645,8 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
     const query = payload?.query ?? ''
     const limit = Number(payload?.limit ?? 5)
     const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 5
-    return await search(query, safeLimit)
+    const kbId = String(payload?.kbId ?? '').trim() || null
+    return await search(query, { limit: safeLimit, kbId, mode: 'semantic' })
   })
 
   ipcMain.handle('rag:chat-start', (event, payload) => {
@@ -193,30 +654,57 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
 
     void (async () => {
       const query = String(payload?.query ?? '').trim()
-      const model = payload?.model ?? 'llama3'
-      const history = Array.isArray(payload?.history) ? payload.history : []
+      const config = getConfig()
+      const kbId = String(payload?.kbId ?? '').trim() || null
+      const sessionId = String(payload?.sessionId ?? '').trim()
+      const model = String(payload?.model ?? config?.ollamaModel ?? 'llama3')
+      const historyPayload = Array.isArray(payload?.history) ? payload.history : []
 
       await initDatabase()
 
-      const chunks = await search(query, 5)
+      let history = historyPayload
+      if (sessionId) {
+        const rows = db
+          .prepare(
+            `SELECT role, content
+             FROM chat_messages
+             WHERE session_id = @sessionId
+             ORDER BY created_at ASC`
+          )
+          .all({ sessionId })
+        const limit = Number(config?.sessionHistoryLimit || 50)
+        history = rows.slice(-limit).map((row) => ({
+          role: String(row?.role ?? 'user'),
+          content: String(row?.content ?? '')
+        }))
+      }
+
+      const lastHistory = history[history.length - 1]
+      if (lastHistory?.role === 'user' && lastHistory.content?.trim() === query) {
+        history = history.slice(0, -1)
+      }
+      history = history.filter((item) => String(item?.content ?? '').trim())
+
+      const chunks = await search(query, { limit: 5, kbId, mode: 'semantic' })
 
       // 在开始生成前先通知前端本次检索命中的来源文件（去重，取 Top 3）
       const sourcesByUuid = new Map()
       for (const chunk of chunks) {
-        const uuid = String(chunk?.source_uuid ?? '').trim()
+        const uuid = String(chunk?.uuid ?? '').trim()
         if (!uuid) continue
 
         const score =
           typeof chunk?.score === 'number' && Number.isFinite(chunk.score) ? chunk.score : null
+        const fileName = String(chunk?.name ?? '').trim()
 
         const existing = sourcesByUuid.get(uuid)
         if (!existing) {
-          sourcesByUuid.set(uuid, { uuid, score })
+          sourcesByUuid.set(uuid, { uuid, score, fileName })
           continue
         }
 
         if (score != null && (existing.score == null || score > existing.score)) {
-          sourcesByUuid.set(uuid, { uuid, score })
+          sourcesByUuid.set(uuid, { uuid, score, fileName })
         }
       }
 
@@ -244,15 +732,11 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
         return
       }
 
-      const nameStmt = db.prepare(`SELECT name FROM files WHERE uuid = ?`)
-      const sources = sourceList.map((item) => {
-        const row = nameStmt.get(item.uuid)
-        return {
-          fileName: String(row?.name ?? 'Unknown file'),
-          uuid: item.uuid,
-          score: item.score
-        }
-      })
+      const sources = sourceList.map((item) => ({
+        fileName: String(item.fileName || 'Unknown file'),
+        uuid: item.uuid,
+        score: item.score
+      }))
 
       try {
         sender.send('rag:sources', sources)
@@ -265,7 +749,7 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
         '',
         '以下是相关的参考资料：',
         '---',
-        chunks.map((c) => c.text).join('\n---\n'),
+        chunks.map((c) => c.snippet).join('\n---\n'),
         '---',
         '',
         `用户问题：${query}`,

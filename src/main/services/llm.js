@@ -1,4 +1,12 @@
-const OLLAMA_CHAT_URL = 'http://localhost:11434/api/chat'
+import { getConfig } from '../config'
+
+const DEFAULT_OLLAMA_URL = 'http://localhost:11434'
+
+function getChatUrl() {
+  const config = getConfig()
+  const base = String(config?.ollamaUrl || DEFAULT_OLLAMA_URL).replace(/\/+$/, '')
+  return `${base}/api/chat`
+}
 
 /**
  * 调用 Ollama /api/chat 并处理流式响应；每收到一段增量文本就回调 onToken。
@@ -7,11 +15,13 @@ const OLLAMA_CHAT_URL = 'http://localhost:11434/api/chat'
  * @param {string} model
  */
 export async function chatStream(messages, onToken, model = 'llama3') {
-  const response = await fetch(OLLAMA_CHAT_URL, {
+  const config = getConfig()
+  const resolvedModel = String(model || config?.ollamaModel || 'llama3')
+  const response = await fetch(getChatUrl(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model,
+      model: resolvedModel,
       stream: true,
       messages
     })

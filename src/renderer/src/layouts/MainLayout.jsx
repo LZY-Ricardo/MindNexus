@@ -1,24 +1,56 @@
-import { Moon, Sun } from 'lucide-react'
+import {
+  LayoutDashboard,
+  Upload,
+  Database,
+  MessageSquare,
+  Search,
+  BarChart3,
+  HardDrive,
+  Settings,
+  Brain,
+  Sparkles,
+  Moon,
+  Sun
+} from 'lucide-react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/lib/store'
 import { useEffect, useState } from 'react'
 
-function NavItem({ to, children }) {
+function NavItem({ to, children, icon: Icon }) {
   return (
     <NavLink
       to={to}
       className={({ isActive }) =>
         cn(
-          'flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors',
-          isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'
+          'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200',
+          isActive
+            ? 'bg-primary/10 text-primary font-medium'
+            : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
         )
       }
       end={to === '/'}
     >
-      {children}
+      {Icon && (
+        <Icon
+          className={cn(
+            'h-4 w-4 shrink-0 transition-colors',
+            'group-hover:text-foreground'
+          )}
+        />
+      )}
+      <span>{children}</span>
     </NavLink>
+  )
+}
+
+function NavGroup({ title, children }) {
+  return (
+    <div className="space-y-1">
+      <p className="px-3 text-xs font-medium text-muted-foreground/70">{title}</p>
+      {children}
+    </div>
   )
 }
 
@@ -35,6 +67,12 @@ export default function MainLayout() {
   const title = (() => {
     if (location.pathname === '/chat') return '对话'
     if (location.pathname === '/settings') return '设置'
+    if (location.pathname === '/import') return '文件导入'
+    if (location.pathname === '/knowledge') return '知识库管理'
+    if (location.pathname === '/sessions') return '会话管理'
+    if (location.pathname === '/search') return '搜索中心'
+    if (location.pathname === '/analytics') return '数据分析'
+    if (location.pathname === '/backup') return '备份恢复'
     return '仪表盘'
   })()
 
@@ -50,18 +88,71 @@ export default function MainLayout() {
   return (
     <div className="h-screen w-screen bg-background text-foreground">
       <div className="flex h-full">
+        {/* Sidebar */}
         <aside
-          className={cn('w-64 shrink-0 border-r p-4', sidebarOpen ? 'block' : 'hidden', 'md:block')}
+          className={cn(
+            'flex w-64 shrink-0 flex-col border-r bg-card/50',
+            sidebarOpen ? 'block' : 'hidden',
+            'md:block'
+          )}
         >
-          <div className="mb-4 text-lg font-semibold">MindNexus</div>
-          <nav className="space-y-1">
-            <NavItem to="/">仪表盘</NavItem>
-            <NavItem to="/chat">对话</NavItem>
-            <NavItem to="/settings">设置</NavItem>
-            <NavItem to="/float">悬浮窗（测试）</NavItem>
+          {/* Header */}
+          <div className="flex h-16 items-center gap-3 border-b px-6">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+              <Brain className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-sm font-semibold tracking-tight">MindNexus</h1>
+              <p className="text-[10px] text-muted-foreground">本地知识库</p>
+            </div>
+          </div>
+
+          {/* Navigation */}
+          <nav className="flex-1 space-y-6 overflow-y-auto p-4">
+            {/* 核心区 */}
+            <NavGroup title="核心功能">
+              <NavItem to="/" icon={LayoutDashboard}>
+                仪表盘
+              </NavItem>
+              <NavItem to="/chat" icon={MessageSquare}>
+                对话
+              </NavItem>
+              <NavItem to="/search" icon={Search}>
+                搜索中心
+              </NavItem>
+            </NavGroup>
+
+            {/* 数据区 */}
+            <NavGroup title="知识管理">
+              <NavItem to="/knowledge" icon={Database}>
+                知识库管理
+              </NavItem>
+              <NavItem to="/import" icon={Upload}>
+                文件导入
+              </NavItem>
+              <NavItem to="/sessions" icon={Sparkles}>
+                会话管理
+              </NavItem>
+              <NavItem to="/analytics" icon={BarChart3}>
+                数据分析
+              </NavItem>
+            </NavGroup>
           </nav>
+
+          {/* Footer - 系统区 */}
+          <div className="border-t p-3">
+            <nav className="space-y-1">
+              <NavItem to="/backup" icon={HardDrive}>
+                备份恢复
+              </NavItem>
+              <NavItem to="/settings" icon={Settings}>
+                设置
+              </NavItem>
+            </nav>
+          </div>
         </aside>
 
+        {/* Main Content */}
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex h-14 items-center justify-between border-b px-4">
             <div className="flex items-center gap-2">
