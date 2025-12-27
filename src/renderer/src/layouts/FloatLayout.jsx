@@ -8,7 +8,7 @@ export default function FloatLayout() {
   }, [])
 
   return (
-    <div className="min-h-screen w-screen bg-transparent p-4">
+    <div className="h-screen w-screen bg-transparent">
       <Outlet />
     </div>
   )

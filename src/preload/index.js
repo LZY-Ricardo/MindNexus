@@ -6,6 +6,7 @@ const INVOKE_CHANNELS = [
   'win:toggle-float',
   'win:set-size',
   'win:open-main',
+  'win:float-context-menu',
   'file:process',
   'file:open',
   'file:list',

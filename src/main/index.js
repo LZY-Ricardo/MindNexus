@@ -1,8 +1,9 @@
-import { app, shell, BrowserWindow, ipcMain, Menu, Tray, nativeImage } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Menu, Tray, nativeImage, screen } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'node:fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import iconWin from '../../build/icon.ico?asset'
 import { initDatabase } from './database'
 import { setupIPC } from './ipc'
 import { embedText, initEmbeddings } from './services/embeddings'
@@ -25,12 +26,15 @@ function getTrayIcon() {
 function createWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow
 
+  // 根据平台选择图标格式
+  const windowIcon = process.platform === 'win32' ? iconWin : icon
+
   mainWindow = new BrowserWindow({
     width: 900,
     height: 670,
     show: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon: windowIcon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -78,16 +82,26 @@ function showMainWindow() {
 function createFloatWindow() {
   if (floatWindow && !floatWindow.isDestroyed()) return floatWindow
 
+  const { workArea } = screen.getPrimaryDisplay()
+  const size = 60
+  const x = Math.round(workArea.x + workArea.width - 100)
+  const y = Math.round(workArea.y + workArea.height * 0.5 - size * 0.5)
+
+  // 根据平台选择图标格式
+  const windowIcon = process.platform === 'win32' ? iconWin : icon
+
   floatWindow = new BrowserWindow({
-    width: 680,
-    height: 60,
+    width: size,
+    height: size,
     show: false,
     frame: false,
     transparent: true,
     resizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    x,
+    y,
+    icon: windowIcon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -103,6 +117,11 @@ function createFloatWindow() {
 
   floatWindow.on('closed', () => {
     floatWindow = null
+  })
+
+  floatWindow.on('system-context-menu', (event) => {
+    event.preventDefault()
+    openFloatContextMenu()
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -131,12 +150,18 @@ function toggleFloatWindow() {
 }
 
 function setFloatWindowSize(width, height) {
-  const w = Number(width)
-  const h = Number(height)
-  if (!Number.isFinite(w) || !Number.isFinite(h)) return
+  // 悬浮球固定尺寸，忽略外部设置（保留 IPC 兼容性）
+  void width
+  void height
+}
 
+function openFloatContextMenu() {
   const win = createFloatWindow()
-  win.setSize(Math.max(200, Math.round(w)), Math.max(40, Math.round(h)), true)
+  const menu = Menu.buildFromTemplate([
+    { label: '隐藏悬浮球', click: () => win.hide() },
+    { label: '退出', role: 'quit' }
+  ])
+  menu.popup({ window: win })
 }
 
 function createTray() {
@@ -151,7 +176,7 @@ function createTray() {
       click: () => showMainWindow()
     },
     {
-      label: '打开悬浮搜索 (Search Bar)',
+      label: '打开悬浮球 (Floating Ball)',
       click: () => openFloatWindow()
     },
     { type: 'separator' },
@@ -224,6 +249,10 @@ if (!gotTheLock) {
       toggleFloatWindow,
       setFloatWindowSize,
       showMainWindow
+    })
+
+    ipcMain.handle('win:float-context-menu', async () => {
+      openFloatContextMenu()
     })
 
     // IPC 测试（模板）
