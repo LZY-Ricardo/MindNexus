@@ -552,11 +552,11 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
     return { success: true, config: next }
   })
 
-  ipcMain.handle('ollama:check', async () => {
-    console.log('[ipc] ollama:check 处理器被调用')
-    const config = getConfig()
-    const baseUrl = String(config?.ollamaUrl || 'http://localhost:11434').replace(/\/+$/, '')
-    const url = `${baseUrl}/api/tags`
+    ipcMain.handle('ollama:check', async () => {
+      console.log('[ipc] ollama:check 处理器被调用')
+      const config = getConfig()
+      const baseUrl = String(config?.ollamaUrl || 'http://localhost:11434').replace(/\/+$/, '')
+      const url = `${baseUrl}/api/tags`
 
     try {
       const controller = new AbortController()
@@ -570,13 +570,48 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
       return { connected: response.ok }
     } catch {
       return { connected: false }
-    }
-  })
+      }
+    })
 
-  // 生成会话标题
-  ipcMain.handle('llm:generate-title', async (_event, payload) => {
-    const firstMessage = String(payload?.firstMessage ?? '').trim()
-    const model = String(payload?.model ?? '')
+    ipcMain.handle('ollama:list-models', async () => {
+      const config = getConfig()
+      const baseUrl = String(config?.ollamaUrl || 'http://localhost:11434').replace(/\/+$/, '')
+      const url = `${baseUrl}/api/tags`
+
+      try {
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 5000)
+
+        const response = await fetch(url, { signal: controller.signal })
+        clearTimeout(timeout)
+
+        if (!response.ok) {
+          return { connected: false, models: [], status: response.status }
+        }
+
+        const data = await response.json().catch(() => null)
+        const rawModels = Array.isArray(data?.models) ? data.models : []
+
+        const models = rawModels
+          .map((item) => ({
+            name: String(item?.name ?? '').trim(),
+            size: typeof item?.size === 'number' && Number.isFinite(item.size) ? item.size : null,
+            modifiedAt: item?.modified_at ? String(item.modified_at) : null,
+            digest: item?.digest ? String(item.digest) : null
+          }))
+          .filter((m) => m.name)
+          .sort((a, b) => a.name.localeCompare(b.name))
+
+        return { connected: true, models }
+      } catch {
+        return { connected: false, models: [] }
+      }
+    })
+  
+    // 生成会话标题
+    ipcMain.handle('llm:generate-title', async (_event, payload) => {
+      const firstMessage = String(payload?.firstMessage ?? '').trim()
+      const model = String(payload?.model ?? '')
     if (!firstMessage) throw new Error('firstMessage 不能为空')
     return await generateTitle(firstMessage, model)
   })

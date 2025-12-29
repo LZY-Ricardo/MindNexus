@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
-import { AlertCircle, RefreshCw, MoreVertical, Send, Sparkles, Code, FileText, Plus, X, BookOpen } from 'lucide-react'
+import {
+  AlertCircle,
+  RefreshCw,
+  MoreVertical,
+  Send,
+  Sparkles,
+  Code,
+  FileText,
+  Plus,
+  X,
+  BookOpen,
+  ChevronDown
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -9,7 +21,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger
+  DropdownMenuTrigger,
+  DropdownMenuSeparator
 } from '@/components/ui/dropdown-menu'
 import MessageBubble from '@/components/MessageBubble'
 import { toast } from '@/hooks/use-toast'
@@ -51,6 +64,10 @@ const quickSuggestions = [
 
 export default function ChatPage() {
   const ollamaModel = useStore((s) => s.ollamaModel)
+  const setOllamaModel = useStore((s) => s.setOllamaModel)
+  const ollamaModels = useStore((s) => s.ollamaModels)
+  const ollamaModelsStatus = useStore((s) => s.ollamaModelsStatus)
+  const loadOllamaModels = useStore((s) => s.loadOllamaModels)
   const messages = useStore((s) => s.currentChatHistory)
   const setCurrentChatHistory = useStore((s) => s.setCurrentChatHistory)
   const appendChatMessage = useStore((s) => s.appendChatMessage)
@@ -82,6 +99,12 @@ export default function ChatPage() {
     }
   }, [initialized])
 
+  useEffect(() => {
+    if (ollamaStatus !== 'connected') return
+    if (ollamaModelsStatus !== 'idle') return
+    void loadOllamaModels()
+  }, [loadOllamaModels, ollamaModelsStatus, ollamaStatus])
+
   const bottomRef = useRef(null)
 
   const historyForApi = useMemo(
@@ -112,6 +135,24 @@ export default function ChatPage() {
       toast({ variant: 'destructive', title: '加载会话失败', description: String(error) })
     }
   }, [currentSessionId, setSessions, setCurrentSessionId])
+
+  const setActiveModel = useCallback(
+    async (modelName) => {
+      const next = String(modelName ?? '').trim()
+      if (!next) return
+
+      setOllamaModel(next)
+
+      if (!currentSessionId) return
+      try {
+        await window.api.invoke('session:update', { id: currentSessionId, model: next })
+        await loadSessions()
+      } catch (error) {
+        toast({ variant: 'destructive', title: '切换模型失败', description: String(error) })
+      }
+    },
+    [currentSessionId, loadSessions, setOllamaModel]
+  )
 
   const loadKnowledgeBases = useCallback(async () => {
     try {
@@ -517,7 +558,52 @@ export default function ChatPage() {
                 ollamaStatus === 'connected' ? 'bg-green-500' : 'bg-orange-500'
               )}
             />
-            <span className="text-sm font-medium">{activeModel}</span>
+            <DropdownMenu
+              onOpenChange={(open) => {
+                if (!open) return
+                if (ollamaStatus !== 'connected') return
+                if (ollamaModelsStatus === 'loading') return
+                if (ollamaModels.length > 0) return
+                void loadOllamaModels()
+              }}
+            >
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 gap-1 px-2">
+                  <span className="text-sm font-medium">{activeModel}</span>
+                  <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem
+                  className="text-xs"
+                  disabled={ollamaStatus !== 'connected' || ollamaModelsStatus === 'loading'}
+                  onClick={() => void loadOllamaModels({ force: true })}
+                >
+                  {ollamaModelsStatus === 'loading' ? '正在刷新模型列表…' : '刷新模型列表'}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {ollamaStatus !== 'connected' ? (
+                  <DropdownMenuItem className="text-xs" disabled>
+                    Ollama 未连接
+                  </DropdownMenuItem>
+                ) : ollamaModels.length === 0 ? (
+                  <DropdownMenuItem className="text-xs" disabled>
+                    未读取到模型
+                  </DropdownMenuItem>
+                ) : (
+                  ollamaModels.map((m) => (
+                    <DropdownMenuItem
+                      key={m.name}
+                      className="text-xs"
+                      onClick={() => void setActiveModel(m.name)}
+                    >
+                      {m.name}
+                      {m.name === activeModel ? '（当前）' : ''}
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 

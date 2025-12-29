@@ -22,13 +22,32 @@ const DEFAULT_CONFIG = {
   autoBackupCount: 7
 }
 
-export const useStore = create((set) => ({
+export const useStore = create((set, get) => ({
   sidebarOpen: true,
   setSidebarOpen: (open) => set({ sidebarOpen: Boolean(open) }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
 
   // Ollama 模型名（例如：qwen3:8b、llama3）
   ollamaModel: getInitialOllamaModel(),
+  ollamaModels: [],
+  ollamaModelsStatus: 'idle', // 'idle' | 'loading' | 'loaded' | 'disconnected'
+  loadOllamaModels: async ({ force = false } = {}) => {
+    if (!force && get().ollamaModelsStatus === 'loading') return []
+
+    set({ ollamaModelsStatus: 'loading' })
+    try {
+      const res = await window.api?.invoke?.('ollama:list-models')
+      const models = Array.isArray(res?.models) ? res.models : []
+      set({
+        ollamaModels: models,
+        ollamaModelsStatus: res?.connected ? 'loaded' : 'disconnected'
+      })
+      return models
+    } catch {
+      set({ ollamaModels: [], ollamaModelsStatus: 'disconnected' })
+      return []
+    }
+  },
   config: { ...DEFAULT_CONFIG },
   loadConfig: async () => {
     try {

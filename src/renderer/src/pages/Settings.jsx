@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -30,9 +30,13 @@ export default function Settings() {
   const config = useStore((s) => s.config)
   const saveConfig = useStore((s) => s.saveConfig)
   const ollamaStatus = useStore((s) => s.ollamaStatus)
+  const ollamaModels = useStore((s) => s.ollamaModels)
+  const ollamaModelsStatus = useStore((s) => s.ollamaModelsStatus)
+  const loadOllamaModels = useStore((s) => s.loadOllamaModels)
   const [form, setForm] = useState(config)
   const [saving, setSaving] = useState(false)
   const [initialized, setInitialized] = useState(false)
+  const [chatModelMode, setChatModelMode] = useState('select') // 'select' | 'custom'
 
   useEffect(() => {
     setForm(config)
@@ -44,6 +48,13 @@ export default function Settings() {
       void useStore.getState().checkOllamaStatus()
     }
   }, [initialized])
+
+  useEffect(() => {
+    if (!initialized) return
+    if (ollamaStatus !== 'connected') return
+    if (ollamaModelsStatus !== 'idle') return
+    void loadOllamaModels()
+  }, [initialized, loadOllamaModels, ollamaModelsStatus, ollamaStatus])
 
   const handleCheckConnection = async () => {
     console.log('[Settings] 检测连接按钮被点击')
@@ -77,6 +88,37 @@ export default function Settings() {
     disconnected: '无法连接到 Ollama 服务，请确保 Ollama 正在运行',
     checking: '正在检测 Ollama 连接状态…',
     unknown: '尚未检测 Ollama 连接状态'
+  }
+
+  const selectChatModel = (name) => {
+    const next = String(name ?? '').trim()
+    if (!next) return
+    update('ollamaModel', next)
+  }
+
+  const chatModelInList = useMemo(() => {
+    const current = String(form.ollamaModel || '').trim()
+    if (!current) return false
+    return ollamaModels.some((m) => m?.name === current)
+  }, [form.ollamaModel, ollamaModels])
+
+  useEffect(() => {
+    if (ollamaStatus !== 'connected') return
+    if (ollamaModels.length === 0) return
+    if (form.ollamaModel && !chatModelInList) {
+      setChatModelMode('custom')
+      return
+    }
+    if (chatModelMode !== 'custom') setChatModelMode('select')
+  }, [chatModelInList, chatModelMode, form.ollamaModel, ollamaModels.length, ollamaStatus])
+
+  const formatSize = (bytes) => {
+    const value = typeof bytes === 'number' && Number.isFinite(bytes) ? bytes : null
+    if (value == null || value <= 0) return '-'
+    const mb = value / 1024 / 1024
+    if (mb < 1024) return `${mb.toFixed(0)} MB`
+    const gb = mb / 1024
+    return `${gb.toFixed(1)} GB`
   }
 
   return (
@@ -113,11 +155,86 @@ export default function Settings() {
           </div>
           <div className="space-y-2">
             <div className="text-sm font-medium">对话模型</div>
-            <Input
-              value={form.ollamaModel || ''}
-              onChange={(e) => update('ollamaModel', e.target.value)}
-              placeholder="例如：qwen3:8b"
-            />
+            {ollamaStatus === 'connected' && ollamaModels.length > 0 && chatModelMode === 'select' ? (
+              <select
+                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                value={chatModelInList ? form.ollamaModel || '' : ''}
+                onChange={(e) => {
+                  const value = String(e.target.value || '').trim()
+                  if (!value) return
+                  selectChatModel(value)
+                }}
+              >
+                {ollamaModels.map((m) => (
+                  <option key={m.name} value={m.name}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <>
+                <Input
+                  value={form.ollamaModel || ''}
+                  onChange={(e) => update('ollamaModel', e.target.value)}
+                  list="ollama-chat-models"
+                  placeholder="例如：qwen3:8b"
+                />
+                <datalist id="ollama-chat-models">
+                  {ollamaModels.map((m) => (
+                    <option key={m.name} value={m.name} />
+                  ))}
+                </datalist>
+              </>
+            )}
+            <div className="text-xs text-muted-foreground">
+              {ollamaStatus === 'connected' && ollamaModels.length > 0 ? (
+                <button
+                  type="button"
+                  className="underline decoration-muted-foreground/30 underline-offset-2 hover:decoration-muted-foreground"
+                  onClick={() => setChatModelMode((m) => (m === 'select' ? 'custom' : 'select'))}
+                >
+                  {chatModelMode === 'select' ? '切换为自定义输入' : '切换为列表选择'}
+                </button>
+              ) : (
+                '支持手动输入；连接 Ollama 后可从已安装模型中选择'
+              )}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium">已安装模型（来自 Ollama）</div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={ollamaStatus !== 'connected' || ollamaModelsStatus === 'loading'}
+                onClick={() => void loadOllamaModels({ force: true })}
+              >
+                {ollamaModelsStatus === 'loading' ? '刷新中…' : '刷新列表'}
+              </Button>
+            </div>
+            {ollamaStatus !== 'connected' ? (
+              <div className="text-xs text-muted-foreground">连接 Ollama 后可读取本机已下载模型列表</div>
+            ) : ollamaModels.length === 0 ? (
+              <div className="text-xs text-muted-foreground">
+                {ollamaModelsStatus === 'loading' ? '正在读取模型列表…' : '未读取到模型（请确认 Ollama 中已下载模型）'}
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-2">
+                  {ollamaModels.slice(0, 12).map((m) => (
+                    <button
+                      key={m.name}
+                      type="button"
+                      onClick={() => selectChatModel(m.name)}
+                      className="rounded-md border px-2 py-1 text-xs hover:bg-muted"
+                      title={`${m.name}${m.size ? ` · ${formatSize(m.size)}` : ''}`}
+                    >
+                      {m.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
           <div className="space-y-2">
             <div className="text-sm font-medium">Embedding 后端</div>

@@ -37,6 +37,7 @@ const INVOKE_CHANNELS = [
   'settings:get',
   'settings:set',
   'ollama:check',
+  'ollama:list-models',
   'llm:generate-title',
   'rag:search',
   'rag:chat-start'
