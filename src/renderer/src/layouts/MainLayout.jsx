@@ -205,7 +205,12 @@ export default function MainLayout() {
             </div>
           </header>
 
-          <main className="min-h-0 flex-1 overflow-hidden p-4">
+          <main
+            className={cn(
+              'min-h-0 flex-1 overflow-hidden',
+              location.pathname === '/chat' ? 'p-0' : 'p-4'
+            )}
+          >
             <Outlet />
           </main>
         </div>

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, RefreshCw, MoreVertical, Send, Sparkles, Code, FileText, Plus } from 'lucide-react'
+import * as DialogPrimitive from '@radix-ui/react-dialog'
+import { AlertCircle, RefreshCw, MoreVertical, Send, Sparkles, Code, FileText, Plus, X, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Dialog, DialogPortal, DialogOverlay, DialogClose } from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,6 +14,7 @@ import {
 import MessageBubble from '@/components/MessageBubble'
 import { toast } from '@/hooks/use-toast'
 import { useStore } from '@/lib/store'
+import { cn } from '@/lib/utils'
 
 // 格式化时间显示 - 简化格式
 function formatTime(timestamp) {
@@ -56,6 +59,8 @@ export default function ChatPage() {
   const setSessions = useStore((s) => s.setSessions)
   const currentSessionId = useStore((s) => s.currentSessionId)
   const setCurrentSessionId = useStore((s) => s.setCurrentSessionId)
+  const openSessionIds = useStore((s) => s.openSessionIds)
+  const setOpenSessionIds = useStore((s) => s.setOpenSessionIds)
   const currentKbId = useStore((s) => s.currentKbId)
   const setCurrentKbId = useStore((s) => s.setCurrentKbId)
   const ollamaStatus = useStore((s) => s.ollamaStatus)
@@ -63,6 +68,8 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [knowledgeBases, setKnowledgeBases] = useState([])
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyQuery, setHistoryQuery] = useState('')
   const [initialized, setInitialized] = useState(false)
 
   const checkOllamaStatus = () => useStore.getState().checkOllamaStatus()
@@ -85,11 +92,18 @@ export default function ChatPage() {
     [messages]
   )
 
+  const currentSession = useMemo(
+    () => sessions.find((s) => s.id === currentSessionId) || null,
+    [currentSessionId, sessions]
+  )
+
+  const activeModel = currentSession?.model || ollamaModel
+
   const loadSessions = useCallback(async () => {
     try {
       const list = await window.api.invoke('session:list')
-      // 过滤掉空会话（没有消息的会话）
-      const next = Array.isArray(list) ? list.filter((s) => (s.message_count || 0) > 0) : []
+      // 保留空会话：用于 Tab 体验（新建会话在发送第一条消息前 message_count 可能为 0）
+      const next = Array.isArray(list) ? list : []
       setSessions(next)
       if (!currentSessionId && next.length > 0) {
         setCurrentSessionId(next[0].id)
@@ -197,11 +211,21 @@ export default function ChatPage() {
   }, [currentSessionId, loadMessages])
 
   useEffect(() => {
-    const current = sessions.find((s) => s.id === currentSessionId)
-    if (current?.kb_id) {
-      setCurrentKbId(current.kb_id)
+    if (currentSession?.kb_id) {
+      setCurrentKbId(currentSession.kb_id)
     }
-  }, [currentSessionId, sessions, setCurrentKbId])
+  }, [currentSession, setCurrentKbId])
+
+  useEffect(() => {
+    const existing = new Set(sessions.map((s) => s.id))
+    const next = openSessionIds.filter((id) => existing.has(id))
+    if (currentSessionId && !next.includes(currentSessionId)) {
+      next.push(currentSessionId)
+    }
+    if (next.length !== openSessionIds.length) {
+      setOpenSessionIds(next)
+    }
+  }, [currentSessionId, openSessionIds, sessions, setOpenSessionIds])
 
   useEffect(() => {
     const off = window.api.on('rag:chat-token', async (data) => {
@@ -270,10 +294,10 @@ export default function ChatPage() {
 
       try {
         // 通过后端 IPC 调用生成标题
-        const title = await window.api.invoke('llm:generate-title', {
-          firstMessage,
-          model: ollamaModel
-        })
+         const title = await window.api.invoke('llm:generate-title', {
+           firstMessage,
+           model: activeModel
+         })
 
         if (title && title !== firstMessage) {
           await window.api.invoke('session:update', { id: currentSessionId, title })
@@ -284,7 +308,7 @@ export default function ChatPage() {
         console.warn('生成标题失败:', error)
       }
     },
-    [currentSessionId, ollamaModel, loadSessions]
+    [currentSessionId, activeModel, loadSessions]
   )
 
   const send = async () => {
@@ -315,7 +339,7 @@ export default function ChatPage() {
       await window.api.invoke('rag:chat-start', {
         query: q,
         history: historyForApi,
-        model: ollamaModel,
+        model: activeModel,
         sessionId: currentSessionId,
         kbId: currentKbId
       })
@@ -342,226 +366,362 @@ export default function ChatPage() {
     if (e.key === 'Enter') send()
   }
 
+  const tabs = useMemo(() => {
+    const map = new Map(sessions.map((s) => [s.id, s]))
+    return openSessionIds.map((id) => map.get(id)).filter(Boolean)
+  }, [openSessionIds, sessions])
+
+  const openFromHistory = useCallback(
+    (sessionId) => {
+      const id = String(sessionId ?? '').trim()
+      if (!id) return
+      if (!openSessionIds.includes(id)) {
+        setOpenSessionIds([...openSessionIds, id])
+      }
+      setCurrentSessionId(id)
+      setHistoryOpen(false)
+    },
+    [openSessionIds, setCurrentSessionId, setHistoryOpen, setOpenSessionIds]
+  )
+
+  const closeTab = useCallback(
+    (e, sessionId) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const id = String(sessionId ?? '').trim()
+      if (!id) return
+
+      const nextOpen = openSessionIds.filter((sid) => sid !== id)
+      setOpenSessionIds(nextOpen)
+
+      if (currentSessionId === id) {
+        const nextActive = nextOpen[nextOpen.length - 1]
+        if (nextActive) {
+          setCurrentSessionId(nextActive)
+        } else {
+          void createSession()
+        }
+      }
+    },
+    [createSession, currentSessionId, openSessionIds, setCurrentSessionId, setOpenSessionIds]
+  )
+
+  const historyGroups = useMemo(() => {
+    const q = historyQuery.trim().toLowerCase()
+    const now = new Date()
+
+    const candidates = sessions
+      .filter((s) => (s.message_count || 0) > 0)
+      .filter((s) => (q ? String(s.title ?? '').toLowerCase().includes(q) : true))
+
+    const groups = {
+      today: [],
+      yesterday: [],
+      week: [],
+      older: []
+    }
+
+    for (const session of candidates) {
+      const ts = Number(session?.updated_at || session?.created_at || 0)
+      const date = ts ? new Date(ts * 1000) : null
+      const diffDays = date ? Math.floor((now - date) / (1000 * 60 * 60 * 24)) : 999
+
+      if (diffDays === 0) groups.today.push(session)
+      else if (diffDays === 1) groups.yesterday.push(session)
+      else if (diffDays < 7) groups.week.push(session)
+      else groups.older.push(session)
+    }
+
+    return [
+      { title: '今天', items: groups.today },
+      { title: '昨天', items: groups.yesterday },
+      { title: '7 天内', items: groups.week },
+      { title: '更早', items: groups.older }
+    ].filter((g) => g.items.length > 0)
+  }, [historyQuery, sessions])
+
   return (
-    <div className="flex h-full">
-      {/* 左侧会话列表 - 去盒子感设计 */}
-      <div className="flex w-56 shrink-0 flex-col bg-surface-deepest">
-        {/* 会话列表头部 */}
-        <div className="flex items-center justify-between px-3 py-3">
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            会话
-          </span>
+    <div className="flex h-full min-w-0 flex-col bg-background">
+      {/* 顶部 Tab 栏（浏览器式体验） */}
+      <div className="flex h-11 items-end border-b bg-card/40">
+        <div className="flex items-center px-2 pb-1">
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7 text-cyber hover:bg-cyber-light hover:text-cyber"
+            className="h-8 w-8"
+            onClick={() => setHistoryOpen(true)}
+            aria-label="打开历史记录"
+          >
+            <BookOpen className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="min-w-0 flex-1 overflow-x-auto px-1 pb-1">
+          <div className="flex min-w-max items-end gap-1">
+            {tabs.map((session) => {
+              const active = session.id === currentSessionId
+              return (
+                <div
+                  key={session.id}
+                  role="button"
+                  tabIndex={0}
+                  className={cn(
+                    'group relative flex h-9 max-w-[220px] cursor-pointer items-center gap-2 rounded-t-md px-3 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    active ? 'bg-background text-foreground' : 'bg-muted/30 text-muted-foreground hover:bg-muted/50'
+                  )}
+                  onClick={() => setCurrentSessionId(session.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setCurrentSessionId(session.id)
+                    }
+                  }}
+                >
+                  {active && (
+                    <span className="absolute inset-x-2 top-0 h-[2px] rounded-full bg-primary" />
+                  )}
+                  <span className="truncate">{session.title || '未命名会话'}</span>
+                  <button
+                    type="button"
+                    className={cn(
+                      'ml-1 inline-flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground/70 transition-opacity hover:bg-muted hover:text-foreground',
+                      active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                    )}
+                    onClick={(e) => closeTab(e, session.id)}
+                    aria-label="关闭标签页"
+                    title="关闭"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-center px-2 pb-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
             onClick={createSession}
+            aria-label="新建会话"
           >
             <Plus className="h-4 w-4" />
           </Button>
         </div>
-
-        {/* 会话列表 */}
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="px-2">
-            {sessions.map((session) => (
-              <button
-                key={session.id}
-                type="button"
-                className={`group relative my-0.5 w-full rounded-lg px-3 py-2 text-left text-sm transition-all ${
-                  session.id === currentSessionId
-                    ? 'bg-cyber/10 text-cyber'
-                    : 'text-muted-foreground hover:bg-surface-medium'
-                }`}
-                onClick={() => setCurrentSessionId(session.id)}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate font-medium">{session.title}</span>
-                  <span className="shrink-0 text-[10px] opacity-60">
-                    {formatTime(session.updated_at)}
-                  </span>
-                </div>
-                {(session.message_count || 0) > 0 && (
-                  <div className="mt-0.5 truncate text-[10px] opacity-60">
-                    {session.message_count} 条消息
-                  </div>
-                )}
-              </button>
-            ))}
-            {sessions.length === 0 && (
-              <div className="py-8 text-center text-xs text-muted-foreground">暂无会话</div>
-            )}
-          </div>
-        </ScrollArea>
       </div>
 
-      {/* 右侧对话区域 */}
-      <div className="flex min-w-0 flex-1 flex-col bg-surface-light">
-        {/* 头部 - 简化设计 */}
-        <div className="flex items-center justify-between border-b px-4 py-2.5">
-          <div className="flex items-center gap-3">
-            {/* 模型状态指示 */}
-            <div className="flex items-center gap-2">
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  ollamaStatus === 'connected' ? 'bg-green-500' : 'bg-orange-500'
-                }`}
-              />
-              <span className="text-sm font-medium">{ollamaModel}</span>
-            </div>
-          </div>
-
+      {/* 二级工具栏（当前会话设置） */}
+      <div className="flex items-center justify-between border-b px-4 py-2">
+        <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            {/* 知识库选择器 - 胶囊样式 */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1 rounded-full px-3 text-xs font-normal"
-                >
-                  {knowledgeBases.find((kb) => kb.id === currentKbId)?.name || '默认知识库'}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {knowledgeBases.map((kb) => (
-                  <DropdownMenuItem
-                    key={kb.id}
-                    className="text-xs"
-                    onClick={() => void handleKbChange(kb.id)}
-                  >
-                    {kb.name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* 更多操作 */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8">
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  className="text-xs"
-                  onClick={renameSession}
-                  disabled={!currentSessionId}
-                >
-                  重命名会话
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="text-xs text-destructive"
-                  onClick={deleteSession}
-                  disabled={!currentSessionId}
-                >
-                  删除会话
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <span
+              className={cn(
+                'h-2 w-2 rounded-full',
+                ollamaStatus === 'connected' ? 'bg-green-500' : 'bg-orange-500'
+              )}
+            />
+            <span className="text-sm font-medium">{activeModel}</span>
           </div>
         </div>
 
-        {/* Ollama 未连接警告 - 顶部通告栏样式 */}
-        {ollamaStatus === 'disconnected' && (
-          <div className="flex items-center justify-between gap-3 border-b border-orange-500/20 bg-orange-500/5 px-4 py-2">
-            <div className="flex items-center gap-2 text-xs text-orange-600">
-              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-              <span>
-                Ollama 服务未连接
-                <button
-                  className="ml-2 underline decoration-orange-500/30 underline-offset-2 hover:decoration-orange-500"
-                  onClick={() => void checkOllamaStatus()}
-                >
-                  点击重试
-                </button>
-              </span>
+        <div className="flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 gap-1 rounded-full px-3 text-xs font-normal">
+                {knowledgeBases.find((kb) => kb.id === currentKbId)?.name || '默认知识库'}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {knowledgeBases.map((kb) => (
+                <DropdownMenuItem key={kb.id} className="text-xs" onClick={() => void handleKbChange(kb.id)}>
+                  {kb.name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem className="text-xs" onClick={renameSession} disabled={!currentSessionId}>
+                重命名会话
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-xs text-destructive" onClick={deleteSession} disabled={!currentSessionId}>
+                删除会话
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      {/* Ollama 未连接警告 - 顶部通告栏样式 */}
+      {ollamaStatus === 'disconnected' && (
+        <div className="flex items-center justify-between gap-3 border-b border-orange-500/20 bg-orange-500/5 px-4 py-2">
+          <div className="flex items-center gap-2 text-xs text-orange-600">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              Ollama 服务未连接
+              <button
+                className="ml-2 underline decoration-orange-500/30 underline-offset-2 hover:decoration-orange-500"
+                onClick={() => void checkOllamaStatus()}
+              >
+                点击重试
+              </button>
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-orange-600 hover:bg-orange-500/10"
+            onClick={() => void checkOllamaStatus()}
+          >
+            <RefreshCw className="h-3 w-3" />
+          </Button>
+        </div>
+      )}
+
+      {/* 消息区域（全宽容器 + 居中内容，控制行宽） */}
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="mx-auto w-full max-w-4xl px-4 py-4">
+          {messages.length === 0 ? (
+            <div className="flex min-h-[60vh] flex-col items-center justify-center">
+              <div className="mb-6 text-center">
+                <h3 className="mb-2 text-lg font-semibold">开始新对话</h3>
+                <p className="text-sm text-muted-foreground">选择一个快捷指令或输入你的问题</p>
+              </div>
+              <div className="flex flex-wrap justify-center gap-2">
+                {quickSuggestions.map((suggestion, idx) => (
+                  <button
+                    key={idx}
+                    className="flex items-center gap-2 rounded-full border px-4 py-2 text-sm text-muted-foreground transition-all hover:border-primary/50 hover:bg-primary/5 hover:text-primary"
+                    onClick={() => setInput(suggestion.text)}
+                  >
+                    {suggestion.icon}
+                    <span>{suggestion.text}</span>
+                  </button>
+                ))}
+              </div>
             </div>
+          ) : (
+            <>
+              {messages.map((m, idx) => (
+                <MessageBubble
+                  key={m?.id || idx}
+                  message={m}
+                  sources={m?.sources}
+                  streaming={streaming}
+                  isLast={idx === messages.length - 1}
+                />
+              ))}
+              <div ref={bottomRef} />
+            </>
+          )}
+        </div>
+      </ScrollArea>
+
+      {/* 输入区域 */}
+      <div className="border-t px-4 py-4">
+        <div className="mx-auto w-full max-w-4xl">
+          <div className="relative flex items-end gap-2 rounded-xl bg-background shadow-lg ring-1 ring-border/50">
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="输入你的问题，按 Enter 发送..."
+              disabled={streaming}
+              className="border-0 bg-transparent px-4 py-3 shadow-none focus-visible:ring-0"
+            />
             <Button
-              variant="ghost"
+              onClick={send}
+              disabled={streaming || !input.trim() || !currentSessionId}
               size="icon"
-              className="h-6 w-6 text-orange-600 hover:bg-orange-500/10"
-              onClick={() => void checkOllamaStatus()}
+              className="mr-1 mb-1 h-9 w-9 shrink-0 rounded-lg bg-primary text-primary-foreground shadow-sm transition-all hover:bg-primary/90 disabled:opacity-40"
             >
-              <RefreshCw className="h-3 w-3" />
+              {streaming ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
           </div>
-        )}
-
-        {/* 消息区域 */}
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="px-4 py-4">
-            {messages.length === 0 ? (
-              /* 空状态 - 带快捷指令 */
-              <div className="flex min-h-[60vh] flex-col items-center justify-center">
-                <div className="mb-6 text-center">
-                  <h3 className="mb-2 text-lg font-semibold">开始新对话</h3>
-                  <p className="text-sm text-muted-foreground">选择一个快捷指令或输入你的问题</p>
-                </div>
-                <div className="flex flex-wrap justify-center gap-2">
-                  {quickSuggestions.map((suggestion, idx) => (
-                    <button
-                      key={idx}
-                      className="flex items-center gap-2 rounded-full border px-4 py-2 text-sm text-muted-foreground transition-all hover:border-cyber/50 hover:bg-cyber/5 hover:text-cyber"
-                      onClick={() => setInput(suggestion.text)}
-                    >
-                      {suggestion.icon}
-                      <span>{suggestion.text}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <>
-                {messages.map((m, idx) => (
-                  <MessageBubble
-                    key={m?.id || idx}
-                    message={m}
-                    sources={m?.sources}
-                    streaming={streaming}
-                    isLast={idx === messages.length - 1}
-                  />
-                ))}
-                <div ref={bottomRef} />
-              </>
-            )}
-          </div>
-        </ScrollArea>
-
-        {/* 输入区域 - 悬浮感设计 */}
-        <div className="border-t px-4 py-4">
-          <div className="mx-auto max-w-3xl">
-            <div className="relative flex items-end gap-2 rounded-xl bg-background shadow-lg ring-1 ring-border/50">
-              <Input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={onKeyDown}
-                placeholder="输入你的问题，按 Enter 发送..."
-                disabled={streaming}
-                className="border-0 bg-transparent px-4 py-3 shadow-none focus-visible:ring-0"
-              />
-              <Button
-                onClick={send}
-                disabled={streaming || !input.trim() || !currentSessionId}
-                size="icon"
-                className="mr-1 mb-1 h-9 w-9 shrink-0 rounded-lg bg-cyber text-cyber-foreground shadow-sm transition-all hover:bg-cyber-hover disabled:opacity-40"
-              >
-                {streaming ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
-            {ollamaStatus === 'connected' && (
-              <p className="mt-2 text-center text-[10px] text-muted-foreground">
-                由 {ollamaModel} 驱动 · RAG 增强对话
-              </p>
-            )}
-          </div>
+          {ollamaStatus === 'connected' && (
+            <p className="mt-2 text-center text-[10px] text-muted-foreground">
+              由 {activeModel} 驱动 · RAG 增强对话
+            </p>
+          )}
         </div>
       </div>
+
+      {/* 历史记录抽屉 */}
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogPortal>
+          <DialogOverlay className="bg-black/50" />
+          <DialogPrimitive.Content
+            className={cn(
+              'fixed inset-y-0 left-0 z-50 w-[360px] max-w-[90vw] border-r bg-background shadow-xl outline-none',
+              'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+              'data-[state=open]:slide-in-from-left-full data-[state=closed]:slide-out-to-left-full'
+            )}
+          >
+            <div className="flex h-full flex-col">
+              <div className="flex items-center gap-2 border-b px-4 py-3">
+                <Input
+                  value={historyQuery}
+                  onChange={(e) => setHistoryQuery(e.target.value)}
+                  placeholder="搜索历史会话..."
+                  className="h-9"
+                />
+                <DialogClose asChild>
+                  <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="关闭历史记录">
+                    <X className="h-4 w-4" />
+                  </Button>
+                </DialogClose>
+              </div>
+
+              <ScrollArea className="min-h-0 flex-1">
+                <div className="space-y-4 p-2">
+                  {historyGroups.length === 0 ? (
+                    <div className="py-10 text-center text-sm text-muted-foreground">暂无历史记录</div>
+                  ) : (
+                    historyGroups.map((group) => (
+                      <div key={group.title} className="space-y-1">
+                        <div className="px-2 text-xs font-medium text-muted-foreground/80">{group.title}</div>
+                        <div className="space-y-1">
+                          {group.items.map((session) => (
+                            <button
+                              key={session.id}
+                              type="button"
+                              className={cn(
+                                'w-full rounded-md px-3 py-2 text-left text-sm transition-colors',
+                                session.id === currentSessionId
+                                  ? 'bg-primary/10 text-primary'
+                                  : 'hover:bg-muted/50'
+                              )}
+                              onClick={() => openFromHistory(session.id)}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="truncate font-medium">{session.title}</span>
+                                <span className="shrink-0 text-[10px] text-muted-foreground/80">
+                                  {formatTime(session.updated_at)}
+                                </span>
+                              </div>
+                              <div className="mt-0.5 text-[10px] text-muted-foreground/70">
+                                {(session.message_count || 0) > 0 ? `${session.message_count} 条消息` : '暂无消息'}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+          </DialogPrimitive.Content>
+        </DialogPortal>
+      </Dialog>
     </div>
   )
 }

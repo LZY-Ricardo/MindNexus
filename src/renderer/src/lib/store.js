@@ -83,6 +83,17 @@ export const useStore = create((set) => ({
 
   currentSessionId: null,
   setCurrentSessionId: (id) => set({ currentSessionId: id || null }),
+  openSessionIds: [],
+  setOpenSessionIds: (ids) =>
+    set(() => {
+      if (!Array.isArray(ids)) return { openSessionIds: [] }
+      const uniq = []
+      for (const raw of ids) {
+        const id = String(raw ?? '').trim()
+        if (id && !uniq.includes(id)) uniq.push(id)
+      }
+      return { openSessionIds: uniq }
+    }),
   sessions: [],
   setSessions: (sessions) => set({ sessions: Array.isArray(sessions) ? sessions : [] }),
   currentKbId: 'default',
