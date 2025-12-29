@@ -90,6 +90,28 @@ html.float-window body {
   background: transparent !important;
 }
 
+.float-menu {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(236, 244, 255, 0.9));
+  color: #0f172a;
+}
+
+.float-menu-primary {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(2, 132, 199, 0.9));
+}
+
+.float-menu-action {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.float-menu-muted {
+  background: rgba(241, 245, 249, 0.95);
+}
+
+.float-ball {
+  background: radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.45), transparent 45%),
+    linear-gradient(145deg, rgba(14, 116, 144, 0.95), rgba(59, 130, 246, 0.9), rgba(14, 165, 233, 0.85));
+}
+
 /* 悬浮窗专用动画 */
 @keyframes float-soft {
   0%,
@@ -121,6 +143,13 @@ html.float-window body {
 
 .animate-ripple-once {
   animation: ripple-once 0.45s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-float-soft,
+  .animate-ripple-once {
+    animation: none;
+  }
 }
 
 /* 美化滚动条 */

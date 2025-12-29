@@ -7,6 +7,9 @@ const INVOKE_CHANNELS = [
   'win:set-size',
   'win:open-main',
   'win:float-context-menu',
+  'win:float-move',
+  'win:float-snap',
+  'app:navigate',
   'file:process',
   'file:open',
   'file:list',
@@ -50,6 +53,9 @@ const api = {
   toggleFloat: () => ipcRenderer.invoke('win:toggle-float'),
   setSize: (width, height) => ipcRenderer.invoke('win:set-size', { width, height }),
   openMain: () => ipcRenderer.invoke('win:open-main'),
+  moveFloat: (x, y) => ipcRenderer.invoke('win:float-move', { x, y }),
+  snapFloat: (x, y) => ipcRenderer.invoke('win:float-snap', { x, y }),
+  navigateTo: (path) => ipcRenderer.invoke('app:navigate', { path }),
 
   processFile: (input) => {
     if (typeof input === 'string') return ipcRenderer.invoke('file:process', { filePath: input })

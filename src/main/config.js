@@ -9,7 +9,9 @@ const DEFAULT_CONFIG = {
   sessionHistoryLimit: 50,
   autoBackup: false,
   autoBackupInterval: 86400,
-  autoBackupCount: 7
+  autoBackupCount: 7,
+  floatWindowX: null,
+  floatWindowY: null
 }
 
 const CONFIG_TYPES = {
@@ -21,7 +23,9 @@ const CONFIG_TYPES = {
   sessionHistoryLimit: 'number',
   autoBackup: 'boolean',
   autoBackupInterval: 'number',
-  autoBackupCount: 'number'
+  autoBackupCount: 'number',
+  floatWindowX: 'number',
+  floatWindowY: 'number'
 }
 
 let configCache = { ...DEFAULT_CONFIG }

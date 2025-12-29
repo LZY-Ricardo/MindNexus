@@ -15,6 +15,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import iconWin from '../../build/icon.ico?asset'
 import { initDatabase } from './database'
+import { loadConfig, getConfig, setConfig } from './config'
 import { setupIPC } from './ipc'
 import { embedText, initEmbeddings } from './services/embeddings'
 
@@ -95,8 +96,14 @@ function createFloatWindow() {
   const { workArea } = screen.getPrimaryDisplay()
   const width = 280
   const height = 220
-  const x = Math.round(workArea.x + workArea.width - width - 24)
-  const y = Math.round(workArea.y + workArea.height * 0.5 - height * 0.5)
+  const config = getConfig()
+  const savedX = Number.isFinite(config?.floatWindowX) ? config.floatWindowX : null
+  const savedY = Number.isFinite(config?.floatWindowY) ? config.floatWindowY : null
+  const defaultX = Math.round(workArea.x + workArea.width - width - 24)
+  const defaultY = Math.round(workArea.y + workArea.height * 0.5 - height * 0.5)
+  const x = savedX ?? defaultX
+  const y = savedY ?? defaultY
+  const safeStart = clampToWorkArea(x, y, { width, height })
 
   // 根据平台选择图标格式
   const windowIcon = process.platform === 'win32' ? iconWin : icon
@@ -110,8 +117,8 @@ function createFloatWindow() {
     resizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
-    x,
-    y,
+    x: safeStart.x,
+    y: safeStart.y,
     icon: windowIcon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -142,6 +149,48 @@ function createFloatWindow() {
   }
 
   return floatWindow
+}
+
+function clampToWorkArea(targetX, targetY, windowBounds) {
+  const { width, height } = windowBounds
+  const anchor = { x: targetX + width / 2, y: targetY + height / 2 }
+  const display = screen.getDisplayNearestPoint(anchor)
+  const area = display?.workArea || screen.getPrimaryDisplay().workArea
+
+  const maxX = Math.max(area.x, area.x + area.width - width)
+  const maxY = Math.max(area.y, area.y + area.height - height)
+
+  const x = Math.min(Math.max(targetX, area.x), maxX)
+  const y = Math.min(Math.max(targetY, area.y), maxY)
+  return { x, y, workArea: area }
+}
+
+async function setFloatWindowPosition(nextX, nextY, { persist = false, snap = false } = {}) {
+  if (!floatWindow || floatWindow.isDestroyed()) return null
+
+  const bounds = floatWindow.getBounds()
+  let { x, y, workArea } = clampToWorkArea(nextX, nextY, bounds)
+
+  if (snap) {
+    const left = Math.abs(x - workArea.x)
+    const right = Math.abs((workArea.x + workArea.width) - (x + bounds.width))
+    const top = Math.abs(y - workArea.y)
+    const bottom = Math.abs((workArea.y + workArea.height) - (y + bounds.height))
+    const min = Math.min(left, right, top, bottom)
+
+    if (min === left) x = workArea.x + 8
+    else if (min === right) x = workArea.x + workArea.width - bounds.width - 8
+    else if (min === top) y = workArea.y + 8
+    else y = workArea.y + workArea.height - bounds.height - 8
+  }
+
+  floatWindow.setBounds({ x: Math.round(x), y: Math.round(y), width: bounds.width, height: bounds.height })
+
+  if (persist) {
+    await setConfig({ floatWindowX: Math.round(x), floatWindowY: Math.round(y) })
+  }
+
+  return { x: Math.round(x), y: Math.round(y) }
 }
 
 function openFloatWindow() {
@@ -261,6 +310,7 @@ if (!gotTheLock) {
 
     try {
       await initDatabase()
+      await loadConfig()
     } catch (error) {
       console.error('[db] init failed', error)
     }
@@ -273,6 +323,29 @@ if (!gotTheLock) {
 
     ipcMain.handle('win:float-context-menu', async () => {
       openFloatContextMenu()
+    })
+
+    ipcMain.handle('win:float-move', async (_event, payload) => {
+      const x = Number(payload?.x)
+      const y = Number(payload?.y)
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+      return await setFloatWindowPosition(x, y, { persist: false, snap: false })
+    })
+
+    ipcMain.handle('win:float-snap', async (_event, payload) => {
+      const x = Number(payload?.x)
+      const y = Number(payload?.y)
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+      return await setFloatWindowPosition(x, y, { persist: true, snap: true })
+    })
+
+    ipcMain.handle('app:navigate', async (_event, payload) => {
+      const path = typeof payload === 'string' ? payload : payload?.path
+      if (!path) return false
+      showMainWindow()
+      const win = createWindow()
+      win.webContents.send('app:navigate', path)
+      return true
     })
 
     // IPC 测试（模板）
