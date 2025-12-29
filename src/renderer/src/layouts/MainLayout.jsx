@@ -10,7 +10,10 @@ import {
   Brain,
   Sparkles,
   Moon,
-  Sun
+  Sun,
+  ChevronLeft,
+  ChevronRight,
+  Menu
 } from 'lucide-react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -18,7 +21,7 @@ import { cn } from '@/lib/utils'
 import { useStore } from '@/lib/store'
 import { useEffect, useState } from 'react'
 
-function NavItem({ to, children, icon: Icon }) {
+function NavItem({ to, children, icon: Icon, collapsed }) {
   return (
     <NavLink
       to={to}
@@ -27,10 +30,12 @@ function NavItem({ to, children, icon: Icon }) {
           'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200',
           isActive
             ? 'bg-primary/10 text-primary font-medium'
-            : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+            : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+          collapsed && 'justify-center px-2'
         )
       }
       end={to === '/'}
+      title={collapsed ? children : undefined}
     >
       {Icon && (
         <Icon
@@ -40,15 +45,17 @@ function NavItem({ to, children, icon: Icon }) {
           )}
         />
       )}
-      <span>{children}</span>
+      {!collapsed && <span>{children}</span>}
     </NavLink>
   )
 }
 
-function NavGroup({ title, children }) {
+function NavGroup({ title, children, collapsed }) {
   return (
     <div className="space-y-1">
-      <p className="px-3 text-xs font-medium text-muted-foreground/70">{title}</p>
+      {!collapsed && (
+        <p className="px-3 text-xs font-medium text-muted-foreground/70">{title}</p>
+      )}
       {children}
     </div>
   )
@@ -63,6 +70,8 @@ export default function MainLayout() {
     const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)')?.matches
     return saved ? saved === 'dark' : Boolean(prefersDark)
   })
+  // 新增：折叠状态（大屏支持折叠，小屏仍然是完全隐藏）
+  const [collapsed, setCollapsed] = useState(false)
 
   const title = (() => {
     if (location.pathname === '/chat') return '对话'
@@ -91,49 +100,71 @@ export default function MainLayout() {
         {/* Sidebar */}
         <aside
           className={cn(
-            'flex w-64 shrink-0 flex-col border-r bg-card/50',
-            sidebarOpen ? 'block' : 'hidden',
-            'md:block'
+            'flex flex-col border-r bg-card/50 transition-all duration-300',
+            // 大屏：显示/折叠
+            'hidden md:flex',
+            collapsed ? 'w-16' : 'w-64',
+            // 小屏：通过 sidebarOpen 控制
+            !sidebarOpen && 'md:hidden'
           )}
         >
           {/* Header */}
-          <div className="flex h-16 items-center gap-3 border-b px-6">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-              <Brain className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-sm font-semibold tracking-tight">MindNexus</h1>
-              <p className="text-[10px] text-muted-foreground">本地知识库</p>
-            </div>
+          <div className="flex h-16 items-center justify-between border-b px-4">
+            {!collapsed && (
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                  <Brain className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <h1 className="text-sm font-semibold tracking-tight">MindNexus</h1>
+                  <p className="text-[10px] text-muted-foreground">本地知识库</p>
+                </div>
+              </div>
+            )}
+            {collapsed && (
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                <Brain className="h-5 w-5 text-primary" />
+              </div>
+            )}
+            {/* 折叠按钮 */}
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              onClick={() => setCollapsed(!collapsed)}
+              aria-label={collapsed ? '展开侧边栏' : '收缩侧边栏'}
+            >
+              {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+            </Button>
           </div>
 
           {/* Navigation */}
           <nav className="flex-1 space-y-6 overflow-y-auto p-4">
             {/* 核心区 */}
-            <NavGroup title="核心功能">
-              <NavItem to="/" icon={LayoutDashboard}>
+            <NavGroup title="核心功能" collapsed={collapsed}>
+              <NavItem to="/" icon={LayoutDashboard} collapsed={collapsed}>
                 仪表盘
               </NavItem>
-              <NavItem to="/chat" icon={MessageSquare}>
+              <NavItem to="/chat" icon={MessageSquare} collapsed={collapsed}>
                 对话
               </NavItem>
-              <NavItem to="/search" icon={Search}>
+              <NavItem to="/search" icon={Search} collapsed={collapsed}>
                 搜索中心
               </NavItem>
             </NavGroup>
 
             {/* 数据区 */}
-            <NavGroup title="知识管理">
-              <NavItem to="/knowledge" icon={Database}>
+            <NavGroup title="知识管理" collapsed={collapsed}>
+              <NavItem to="/knowledge" icon={Database} collapsed={collapsed}>
                 知识库管理
               </NavItem>
-              <NavItem to="/import" icon={Upload}>
+              <NavItem to="/import" icon={Upload} collapsed={collapsed}>
                 文件导入
               </NavItem>
-              <NavItem to="/sessions" icon={Sparkles}>
+              <NavItem to="/sessions" icon={Sparkles} collapsed={collapsed}>
                 会话管理
               </NavItem>
-              <NavItem to="/analytics" icon={BarChart3}>
+              <NavItem to="/analytics" icon={BarChart3} collapsed={collapsed}>
                 数据分析
               </NavItem>
             </NavGroup>
@@ -142,10 +173,10 @@ export default function MainLayout() {
           {/* Footer - 系统区 */}
           <div className="border-t p-3">
             <nav className="space-y-1">
-              <NavItem to="/backup" icon={HardDrive}>
+              <NavItem to="/backup" icon={HardDrive} collapsed={collapsed}>
                 备份恢复
               </NavItem>
-              <NavItem to="/settings" icon={Settings}>
+              <NavItem to="/settings" icon={Settings} collapsed={collapsed}>
                 设置
               </NavItem>
             </nav>
@@ -163,7 +194,7 @@ export default function MainLayout() {
                 onClick={toggleSidebar}
                 aria-label="切换侧边栏"
               >
-                <span className="text-lg leading-none">≡</span>
+                <Menu className="h-5 w-5" />
               </Button>
               <div className="text-sm text-muted-foreground">{title}</div>
             </div>
