@@ -67,11 +67,17 @@ export function resetEmbeddings() {
 async function embedWithOllama(text, model) {
   const config = getConfig()
   const resolvedModel = String(model || config?.embeddingsModel || 'nomic-embed-text:latest')
-  const response = await fetch(getEmbedUrl(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: resolvedModel, prompt: text })
-  })
+
+  let response
+  try {
+    response = await fetch(getEmbedUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: resolvedModel, prompt: text })
+    })
+  } catch {
+    throw new Error(`Ollama 服务连接失败 (${getEmbedUrl()})，请确保 Ollama 正在运行`)
+  }
 
   if (!response.ok) {
     const body = await response.text().catch(() => '')

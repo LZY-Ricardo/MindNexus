@@ -88,6 +88,7 @@ export default function ChatPage() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyQuery, setHistoryQuery] = useState('')
   const [initialized, setInitialized] = useState(false)
+  const [userScrolled, setUserScrolled] = useState(false)
 
   const checkOllamaStatus = () => useStore.getState().checkOllamaStatus()
 
@@ -106,6 +107,7 @@ export default function ChatPage() {
   }, [loadOllamaModels, ollamaModelsStatus, ollamaStatus])
 
   const bottomRef = useRef(null)
+  const scrollAreaRef = useRef(null)
 
   const historyForApi = useMemo(
     () =>
@@ -319,8 +321,52 @@ export default function ChatPage() {
   }, [appendChatMessage, updateLastAssistantMessage])
 
   useEffect(() => {
+    // 用户手动滚动时不再自动滚动到底部
+    if (userScrolled) return
     bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
-  }, [messages])
+  }, [messages, userScrolled])
+
+  // 监听滚动事件，检测用户是否手动向上滚动
+  useEffect(() => {
+    const scrollArea = scrollAreaRef.current
+    if (!scrollArea) return
+
+    const viewport = scrollArea.querySelector('[data-radix-scroll-area-viewport]')
+    if (!viewport) return
+
+    let scrollTimeout = null
+
+    const handleScroll = () => {
+      // 清除之前的定时器
+      if (scrollTimeout) clearTimeout(scrollTimeout)
+
+      const { scrollTop, scrollHeight, clientHeight } = viewport
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
+
+      // 如果不在底部附近，标记用户已滚动
+      if (!isNearBottom) {
+        setUserScrolled(true)
+      } else {
+        // 在底部附近，延迟重置状态（避免滚动时的抖动）
+        scrollTimeout = setTimeout(() => {
+          setUserScrolled(false)
+        }, 150)
+      }
+    }
+
+    viewport.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      viewport.removeEventListener('scroll', handleScroll)
+      if (scrollTimeout) clearTimeout(scrollTimeout)
+    }
+  }, [])
+
+  // 流式输出结束后重置滚动状态
+  useEffect(() => {
+    if (!streaming) {
+      setUserScrolled(false)
+    }
+  }, [streaming])
 
   // 生成会话标题
   const generateSessionTitle = useCallback(
@@ -668,7 +714,7 @@ export default function ChatPage() {
       )}
 
       {/* 消息区域（全宽容器 + 居中内容，控制行宽） */}
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea ref={scrollAreaRef} className="min-h-0 flex-1">
         <div className="mx-auto w-full max-w-4xl px-4 py-4">
           {messages.length === 0 ? (
             <div className="flex min-h-[60vh] flex-col items-center justify-center">

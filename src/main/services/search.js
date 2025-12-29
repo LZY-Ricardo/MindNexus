@@ -44,7 +44,13 @@ async function semanticSearch(query, { limit, kbId } = {}) {
   const table = await openKnowledgeTable()
   if (!table) return []
 
-  const vector = await embedText(query)
+  let vector
+  try {
+    vector = await embedText(query)
+  } catch (error) {
+    console.warn('[search] 向量化失败，跳过语义检索:', error.message || error)
+    return []
+  }
 
   let queryBuilder = table.vectorSearch(vector).distanceType('cosine')
   const safeKbId = kbId ? String(kbId).trim() : ''
