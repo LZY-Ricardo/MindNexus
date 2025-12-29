@@ -4,6 +4,7 @@ import rehypeHighlight from 'rehype-highlight'
 
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { TypingIndicator } from '@/components/TypingIndicator'
 import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 
@@ -12,7 +13,9 @@ export default function MessageBubble({ message, sources, isLast, streaming }) {
   const isUser = role === 'user'
 
   const content = String(message?.content ?? '')
-  const displayContent = content || (role === 'assistant' && streaming && isLast ? '...' : '')
+  const isEmpty = content.length === 0
+  const showTypingIndicator = !isUser && isEmpty && streaming && isLast
+  const displayContent = showTypingIndicator ? '' : content
   const sourceList = Array.isArray(sources) ? sources : []
 
   // 检测回答是否表示"不知道"或无相关内容，这种情况下不应显示来源
@@ -67,11 +70,18 @@ export default function MessageBubble({ message, sources, isLast, streaming }) {
           <div className="whitespace-pre-wrap">{displayContent}</div>
         ) : (
           <div>
-            <div className="prose prose-sm dark:prose-invert max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                {displayContent}
-              </ReactMarkdown>
-            </div>
+            {showTypingIndicator ? (
+              <div className="flex items-center gap-2 py-1">
+                <TypingIndicator />
+                <span className="text-xs text-muted-foreground">AI 正在思考...</span>
+              </div>
+            ) : (
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                  {displayContent}
+                </ReactMarkdown>
+              </div>
+            )}
 
             {shouldShowSources && (
               <div className="mt-3">

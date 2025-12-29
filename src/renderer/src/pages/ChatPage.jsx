@@ -709,20 +709,33 @@ export default function ChatPage() {
       {/* 输入区域 */}
       <div className="border-t px-4 py-4">
         <div className="mx-auto w-full max-w-4xl">
-          <div className="relative flex items-end gap-2 rounded-xl bg-background shadow-lg ring-1 ring-border/50">
+          <div
+            className={cn(
+              'relative flex items-end gap-2 rounded-xl bg-background shadow-lg ring-1 ring-border/50 transition-colors',
+              streaming && 'bg-muted/30 ring-primary/30'
+            )}
+          >
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="输入你的问题，按 Enter 发送..."
+              placeholder={streaming ? 'AI 正在思考中...' : '输入你的问题，按 Enter 发送...'}
               disabled={streaming}
-              className="border-0 bg-transparent px-4 py-3 shadow-none focus-visible:ring-0"
+              className={cn(
+                'border-0 bg-transparent px-4 py-3 shadow-none focus-visible:ring-0',
+                streaming && 'text-muted-foreground'
+              )}
             />
             <Button
               onClick={send}
               disabled={streaming || !input.trim() || !currentSessionId}
               size="icon"
-              className="mr-1 mb-1 h-9 w-9 shrink-0 rounded-lg bg-primary text-primary-foreground shadow-sm transition-all hover:bg-primary/90 disabled:opacity-40"
+              className={cn(
+                'mr-1 mb-1 h-9 w-9 shrink-0 rounded-lg shadow-sm transition-all',
+                streaming
+                  ? 'bg-primary/80 text-primary-foreground'
+                  : 'bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40'
+              )}
             >
               {streaming ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
