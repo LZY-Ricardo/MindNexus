@@ -3,7 +3,7 @@ import { db, initDatabase, vectorStore, closeDatabase, isFtsEnabled } from './da
 import { processFile } from './services/ingestor'
 import { resetEmbeddings } from './services/embeddings'
 import { search } from './services/search'
-import { chatStream } from './services/llm'
+import { chatStream, generateTitle } from './services/llm'
 import { mkdirSync, writeFileSync, cpSync, rmSync, readdirSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -571,6 +571,14 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
     } catch {
       return { connected: false }
     }
+  })
+
+  // 生成会话标题
+  ipcMain.handle('llm:generate-title', async (_event, payload) => {
+    const firstMessage = String(payload?.firstMessage ?? '').trim()
+    const model = String(payload?.model ?? '')
+    if (!firstMessage) throw new Error('firstMessage 不能为空')
+    return await generateTitle(firstMessage, model)
   })
 
   ipcMain.handle('analytics:overview', async () => {

@@ -10,7 +10,7 @@
     --card-foreground: 222.2 84% 4.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
+    --primary: 262 80% 55%;
     --primary-foreground: 210 40% 98%;
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
@@ -22,8 +22,18 @@
     --destructive-foreground: 210 40% 98%;
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --ring: 262 80% 55%;
     --radius: 0.5rem;
+
+    /* 背景色阶 - 用于去盒子感的渐变背景 */
+    --surface-deepest: 220 20% 96%;
+    --surface-medium: 0 0% 98%;
+    --surface-light: 0 0% 100%;
+
+    /* 强调色 - 赛博感蓝紫色 */
+    --accent-cyber: 262 80% 55%;
+    --accent-cyber-hover: 262 80% 48%;
+    --accent-cyber-light: 262 50% 92%;
   }
 
   .dark {
@@ -33,8 +43,8 @@
     --card-foreground: 210 40% 98%;
     --popover: 222.2 84% 4.9%;
     --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 262 80% 60%;
+    --primary-foreground: 210 40% 98%;
     --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;
     --muted: 217.2 32.6% 17.5%;
@@ -45,7 +55,17 @@
     --destructive-foreground: 210 40% 98%;
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --ring: 262 80% 60%;
+
+    /* 暗色模式背景色阶 */
+    --surface-deepest: 220 30% 12%;
+    --surface-medium: 220 25% 16%;
+    --surface-light: 220 20% 20%;
+
+    /* 暗色模式强调色 */
+    --accent-cyber: 262 80% 60%;
+    --accent-cyber-hover: 262 80% 50%;
+    --accent-cyber-light: 262 30% 25%;
   }
 }
 
