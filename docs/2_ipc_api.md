@@ -63,3 +63,10 @@ Although we use JS, follow these shapes:
 | :------------------ | :----- | :------ | :------------------------------------------ | :---------------------------------------------- |
 | `ollama:check`      | Invoke | `null`  | `{ connected: boolean }`                    | Checks if Ollama is reachable via `/api/tags`. |
 | `ollama:list-models`| Invoke | `null`  | `{ connected: boolean, models: Array }`     | Lists local models from Ollama `/api/tags`.    |
+| `ollama:open-download` | Invoke | `null` | `boolean`                                  | Opens Ollama official download page.           |
+| `ollama:pull-start` | Invoke | `{ model: string }` | `{ success: boolean, message?: string }` | Starts pulling a model with `/api/pull`.       |
+
+### Ollama Events
+
+- **Event:** `ollama:pull-progress`
+- **Payload:** `{ model, status?, total?, completed?, error?, done? }`

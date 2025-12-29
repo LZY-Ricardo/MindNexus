@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -37,6 +38,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [initialized, setInitialized] = useState(false)
   const [chatModelMode, setChatModelMode] = useState('select') // 'select' | 'custom'
+  const navigate = useNavigate()
 
   useEffect(() => {
     setForm(config)
@@ -128,6 +130,9 @@ export default function Settings() {
           <div className="flex items-center justify-between">
             <CardTitle>模型设置</CardTitle>
             <div className="flex items-center gap-3">
+              <Button variant="outline" size="sm" onClick={() => navigate('/onboarding')}>
+                新手引导
+              </Button>
               <StatusBadge status={ollamaStatus} />
               <Button variant="outline" size="sm" onClick={handleCheckConnection}>
                 检测连接

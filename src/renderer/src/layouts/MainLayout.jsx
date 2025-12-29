@@ -13,7 +13,8 @@ import {
   Sun,
   ChevronLeft,
   ChevronRight,
-  Menu
+  Menu,
+  Rocket
 } from 'lucide-react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -76,6 +77,7 @@ export default function MainLayout() {
   const title = (() => {
     if (location.pathname === '/chat') return '对话'
     if (location.pathname === '/settings') return '设置'
+    if (location.pathname === '/onboarding') return '新手引导'
     if (location.pathname === '/import') return '文件导入'
     if (location.pathname === '/knowledge') return '知识库管理'
     if (location.pathname === '/sessions') return '会话管理'
@@ -175,6 +177,9 @@ export default function MainLayout() {
             <nav className="space-y-1">
               <NavItem to="/backup" icon={HardDrive} collapsed={collapsed}>
                 备份恢复
+              </NavItem>
+              <NavItem to="/onboarding" icon={Rocket} collapsed={collapsed}>
+                新手引导
               </NavItem>
               <NavItem to="/settings" icon={Settings} collapsed={collapsed}>
                 设置

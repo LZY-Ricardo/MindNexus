@@ -29,6 +29,7 @@ function toBuffer(data) {
 }
 
 let autoBackupTimer = null
+let ollamaPullInProgress = false
 
 function getBackupRoot() {
   const root = join(app.getPath('userData'), 'backups')
@@ -606,6 +607,98 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
       } catch {
         return { connected: false, models: [] }
       }
+    })
+
+    ipcMain.handle('ollama:open-download', async () => {
+      await shell.openExternal('https://ollama.com/download')
+      return true
+    })
+
+    ipcMain.handle('ollama:pull-start', async (event, payload) => {
+      const model = String(payload?.model ?? '').trim()
+      if (!model) return { success: false, message: 'model 不能为空' }
+      if (ollamaPullInProgress) return { success: false, message: '已有拉取任务正在进行' }
+
+      const sender = event.sender
+      const config = getConfig()
+      const baseUrl = String(config?.ollamaUrl || 'http://localhost:11434').replace(/\/+$/, '')
+      const url = `${baseUrl}/api/pull`
+
+      ollamaPullInProgress = true
+
+      void (async () => {
+        try {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: model, stream: true })
+          })
+
+          if (!response.ok) {
+            const text = await response.text().catch(() => '')
+            sender.send('ollama:pull-progress', {
+              model,
+              done: true,
+              error: `Ollama 拉取失败: ${response.status} ${response.statusText} ${text}`.trim()
+            })
+            return
+          }
+
+          if (!response.body) {
+            sender.send('ollama:pull-progress', {
+              model,
+              done: true,
+              error: 'Ollama 响应缺少 body（无法流式读取）'
+            })
+            return
+          }
+
+          const reader = response.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+
+          while (true) {
+            const { value, done } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+
+            while (true) {
+              const newlineIndex = buffer.indexOf('\n')
+              if (newlineIndex === -1) break
+              const line = buffer.slice(0, newlineIndex).trim()
+              buffer = buffer.slice(newlineIndex + 1)
+              if (!line) continue
+
+              let json
+              try {
+                json = JSON.parse(line)
+              } catch {
+                continue
+              }
+
+              sender.send('ollama:pull-progress', { model, ...json, done: false })
+            }
+          }
+
+          const tail = buffer.trim()
+          if (tail) {
+            try {
+              const json = JSON.parse(tail)
+              sender.send('ollama:pull-progress', { model, ...json, done: false })
+            } catch {
+              // 忽略尾部残片
+            }
+          }
+
+          sender.send('ollama:pull-progress', { model, done: true, status: 'done' })
+        } catch (error) {
+          sender.send('ollama:pull-progress', { model, done: true, error: String(error?.message || error) })
+        } finally {
+          ollamaPullInProgress = false
+        }
+      })()
+
+      return { success: true }
     })
   
     // 生成会话标题

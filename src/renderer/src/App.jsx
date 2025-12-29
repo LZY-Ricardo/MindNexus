@@ -5,6 +5,7 @@ import FloatLayout from '@/layouts/FloatLayout'
 import Dashboard from '@/pages/Dashboard'
 import ChatPage from '@/pages/ChatPage'
 import Settings from '@/pages/Settings'
+import OnboardingPage from '@/pages/OnboardingPage'
 import FloatPage from '@/pages/FloatPage'
 import ImportPage from '@/pages/ImportPage'
 import KnowledgePage from '@/pages/KnowledgePage'
@@ -43,6 +44,7 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="onboarding" element={<OnboardingPage />} />
           <Route path="import" element={<ImportPage />} />
           <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="sessions" element={<SessionsPage />} />

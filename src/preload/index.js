@@ -38,12 +38,14 @@ const INVOKE_CHANNELS = [
   'settings:set',
   'ollama:check',
   'ollama:list-models',
+  'ollama:open-download',
+  'ollama:pull-start',
   'llm:generate-title',
   'rag:search',
   'rag:chat-start'
 ]
 
-const EVENT_CHANNELS = ['rag:chat-token', 'rag:sources', 'file:process-progress', 'app:navigate']
+const EVENT_CHANNELS = ['rag:chat-token', 'rag:sources', 'file:process-progress', 'app:navigate', 'ollama:pull-progress']
 
 const api = {
   invoke: (channel, payload) => {
