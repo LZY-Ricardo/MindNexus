@@ -61,6 +61,21 @@ export const useStore = create((set) => ({
       return { ollamaModel: next, config: { ...DEFAULT_CONFIG, ollamaModel: next } }
     }),
 
+  // Ollama 连接状态
+  ollamaStatus: 'unknown', // 'unknown' | 'checking' | 'connected' | 'disconnected'
+  setOllamaStatus: (status) => set({ ollamaStatus: status }),
+  checkOllamaStatus: async () => {
+    set({ ollamaStatus: 'checking' })
+    try {
+      const result = await window.api?.invoke?.('ollama:check')
+      set({ ollamaStatus: result?.connected ? 'connected' : 'disconnected' })
+      return result?.connected || false
+    } catch {
+      set({ ollamaStatus: 'disconnected' })
+      return false
+    }
+  },
+
   currentSessionId: null,
   setCurrentSessionId: (id) => set({ currentSessionId: id || null }),
   sessions: [],

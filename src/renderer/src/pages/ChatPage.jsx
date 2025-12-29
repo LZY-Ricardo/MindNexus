@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AlertCircle, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Card, CardContent } from '@/components/ui/card'
 import MessageBubble from '@/components/MessageBubble'
 import { toast } from '@/hooks/use-toast'
 import { useStore } from '@/lib/store'
@@ -25,10 +27,17 @@ export default function ChatPage() {
   const setCurrentSessionId = useStore((s) => s.setCurrentSessionId)
   const currentKbId = useStore((s) => s.currentKbId)
   const setCurrentKbId = useStore((s) => s.setCurrentKbId)
+  const ollamaStatus = useStore((s) => s.ollamaStatus)
+  const checkOllamaStatus = useStore((s) => s.checkOllamaStatus)
 
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [knowledgeBases, setKnowledgeBases] = useState([])
+
+  // 页面加载时检测 Ollama 状态
+  useEffect(() => {
+    void checkOllamaStatus()
+  }, [checkOllamaStatus])
 
   const bottomRef = useRef(null)
 
@@ -327,6 +336,28 @@ export default function ChatPage() {
             </Button>
           </div>
         </div>
+
+        {ollamaStatus === 'disconnected' && (
+          <Card className="border-orange-500/20 bg-orange-500/5">
+            <CardContent className="flex items-center gap-3 p-3 text-sm text-orange-600">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <div className="flex-1">
+                <span className="font-medium">Ollama 服务未连接</span>
+                <span className="mx-1">·</span>
+                <span className="opacity-80">对话功能需要先启动 Ollama 服务</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => void checkOllamaStatus()}
+              >
+                <RefreshCw className="mr-1 h-3 w-3" />
+                重新检测
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         <ScrollArea className="min-h-0 flex-1 rounded-md border bg-card">
           <div className="space-y-4 p-4">

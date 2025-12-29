@@ -2,17 +2,45 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { useStore } from '@/lib/store'
+
+function StatusBadge({ status }) {
+  if (status === 'checking') {
+    return <Badge variant="outline">检测中…</Badge>
+  }
+  if (status === 'connected') {
+    return (
+      <Badge variant="secondary" className="bg-green-500/10 text-green-600 hover:bg-green-500/20">
+        已连接
+      </Badge>
+    )
+  }
+  if (status === 'disconnected') {
+    return (
+      <Badge variant="destructive" className="bg-orange-500/10 text-orange-600 hover:bg-orange-500/20">
+        未连接
+      </Badge>
+    )
+  }
+  return <Badge variant="outline">未知</Badge>
+}
 
 export default function Settings() {
   const config = useStore((s) => s.config)
   const saveConfig = useStore((s) => s.saveConfig)
+  const ollamaStatus = useStore((s) => s.ollamaStatus)
+  const checkOllamaStatus = useStore((s) => s.checkOllamaStatus)
   const [form, setForm] = useState(config)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     setForm(config)
   }, [config])
+
+  useEffect(() => {
+    void checkOllamaStatus()
+  }, [checkOllamaStatus])
 
   const update = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -22,16 +50,42 @@ export default function Settings() {
     setSaving(true)
     try {
       await saveConfig(form)
+      // 保存后重新检测连接状态
+      await checkOllamaStatus()
     } finally {
       setSaving(false)
     }
+  }
+
+  const statusText = {
+    connected: 'Ollama 服务运行正常',
+    disconnected: '无法连接到 Ollama 服务，请确保 Ollama 正在运行',
+    checking: '正在检测 Ollama 连接状态…',
+    unknown: '尚未检测 Ollama 连接状态'
   }
 
   return (
     <div className="h-full overflow-auto space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>模型设置</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>模型设置</CardTitle>
+            <div className="flex items-center gap-3">
+              <StatusBadge status={ollamaStatus} />
+              <Button variant="outline" size="sm" onClick={() => void checkOllamaStatus()}>
+                检测连接
+              </Button>
+            </div>
+          </div>
+          {ollamaStatus === 'disconnected' && (
+            <div className="mt-2 rounded-md bg-orange-500/10 p-3 text-sm text-orange-600">
+              {statusText.disconnected}
+              <br />
+              <span className="text-xs opacity-80">
+                提示：运行 <code className="rounded bg-black/10 px-1">ollama serve</code> 启动服务
+              </span>
+            </div>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">

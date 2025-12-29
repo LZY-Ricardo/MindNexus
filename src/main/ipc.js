@@ -550,6 +550,26 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
     return { success: true, config: next }
   })
 
+  ipcMain.handle('ollama:check', async () => {
+    const config = getConfig()
+    const baseUrl = String(config?.ollamaUrl || 'http://localhost:11434').replace(/\/+$/, '')
+    const url = `${baseUrl}/api/tags`
+
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 3000)
+
+      const response = await fetch(url, {
+        signal: controller.signal
+      })
+
+      clearTimeout(timeout)
+      return { connected: response.ok }
+    } catch {
+      return { connected: false }
+    }
+  })
+
   ipcMain.handle('analytics:overview', async () => {
     await initDatabase()
     const total = db.prepare(`SELECT COUNT(*) AS count FROM files`).get()?.count || 0

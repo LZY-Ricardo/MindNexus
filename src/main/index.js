@@ -297,7 +297,12 @@ if (!gotTheLock) {
         const backend = await initEmbeddings()
         if (backend === 'ollama') await embedText('warmup')
       } catch (error) {
-        console.error('[embeddings] warmup failed', error)
+        // Ollama 未启动时静默忽略，首次使用时会给出明确提示
+        if (error?.cause?.code === 'ECONNREFUSED') {
+          console.log('[embeddings] Ollama 服务未启动，首次使用 embeddings 时请确保 Ollama 正在运行')
+        } else {
+          console.warn('[embeddings] warmup failed', error)
+        }
       }
     })()
 
