@@ -9,7 +9,7 @@
     "format": "prettier --write .",
     "lint": "eslint --cache .",
     "start": "electron-vite preview",
-    "dev": "node scripts/dev.js",
+    "dev": "chcp 65001 >nul && node scripts/dev.js",
     "build": "electron-vite build",
     "postinstall": "electron-builder install-app-deps || electron-rebuild -f -o better-sqlite3",
     "build:unpack": "npm run build && electron-builder --dir",

@@ -21,17 +21,13 @@ export default function OnboardingPage() {
   const loadOllamaModels = useStore((s) => s.loadOllamaModels)
   const ollamaModels = useStore((s) => s.ollamaModels)
 
-  const [modelName, setModelName] = useState('')
+  const [modelName, setModelName] = useState(() => String(config?.ollamaModel || 'qwen3:8b'))
   const [pulling, setPulling] = useState(false)
   const [pullStatus, setPullStatus] = useState('')
   const [pullProgress, setPullProgress] = useState({ completed: 0, total: 0 })
   const [pullError, setPullError] = useState('')
 
   const [lastModel, setLastModel] = useState('')
-
-  useEffect(() => {
-    setModelName(String(config?.ollamaModel || 'qwen3:8b'))
-  }, [config?.ollamaModel])
 
   useEffect(() => {
     void checkOllamaStatus?.()
