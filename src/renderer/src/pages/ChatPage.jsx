@@ -201,12 +201,6 @@ export default function ChatPage() {
   }, [loadKnowledgeBases, loadSessions])
 
   useEffect(() => {
-    if (sessions.length === 0) {
-      void createSession()
-    }
-  }, [createSession, sessions.length])
-
-  useEffect(() => {
     void loadMessages(currentSessionId)
   }, [currentSessionId, loadMessages])
 
@@ -390,20 +384,18 @@ export default function ChatPage() {
       e.stopPropagation()
       const id = String(sessionId ?? '').trim()
       if (!id) return
+      // 不允许关闭最后一个标签页
+      if (openSessionIds.length <= 1) return
 
       const nextOpen = openSessionIds.filter((sid) => sid !== id)
       setOpenSessionIds(nextOpen)
 
       if (currentSessionId === id) {
         const nextActive = nextOpen[nextOpen.length - 1]
-        if (nextActive) {
-          setCurrentSessionId(nextActive)
-        } else {
-          void createSession()
-        }
+        setCurrentSessionId(nextActive)
       }
     },
-    [createSession, currentSessionId, openSessionIds, setCurrentSessionId, setOpenSessionIds]
+    [currentSessionId, openSessionIds, setCurrentSessionId, setOpenSessionIds]
   )
 
   const historyGroups = useMemo(() => {
@@ -460,6 +452,7 @@ export default function ChatPage() {
           <div className="flex min-w-max items-end gap-1">
             {tabs.map((session) => {
               const active = session.id === currentSessionId
+              const isLastTab = tabs.length === 1
               return (
                 <div
                   key={session.id}
@@ -481,18 +474,20 @@ export default function ChatPage() {
                     <span className="absolute inset-x-2 top-0 h-[2px] rounded-full bg-primary" />
                   )}
                   <span className="truncate">{session.title || '未命名会话'}</span>
-                  <button
-                    type="button"
-                    className={cn(
-                      'ml-1 inline-flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground/70 transition-opacity hover:bg-muted hover:text-foreground',
-                      active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                    )}
-                    onClick={(e) => closeTab(e, session.id)}
-                    aria-label="关闭标签页"
-                    title="关闭"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
+                  {!isLastTab && (
+                    <button
+                      type="button"
+                      className={cn(
+                        'ml-1 inline-flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground/70 transition-opacity hover:bg-muted hover:text-foreground',
+                        active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                      )}
+                      onClick={(e) => closeTab(e, session.id)}
+                      aria-label="关闭标签页"
+                      title="关闭"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
               )
             })}
