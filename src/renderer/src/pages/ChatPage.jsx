@@ -11,7 +11,8 @@ import {
   Plus,
   X,
   BookOpen,
-  ChevronDown
+  ChevronDown,
+  ArrowDown
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -89,6 +90,7 @@ export default function ChatPage() {
   const [historyQuery, setHistoryQuery] = useState('')
   const [initialized, setInitialized] = useState(false)
   const [userScrolled, setUserScrolled] = useState(false)
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
 
   const checkOllamaStatus = () => useStore.getState().checkOllamaStatus()
 
@@ -342,6 +344,9 @@ export default function ChatPage() {
 
       const { scrollTop, scrollHeight, clientHeight } = viewport
       const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
+
+      // 控制回到底部按钮显示
+      setShowScrollToBottom(!isNearBottom)
 
       // 如果不在底部附近，标记用户已滚动
       if (!isNearBottom) {
@@ -714,7 +719,8 @@ export default function ChatPage() {
       )}
 
       {/* 消息区域（全宽容器 + 居中内容，控制行宽） */}
-      <ScrollArea ref={scrollAreaRef} className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
+        <ScrollArea ref={scrollAreaRef} className="h-full">
         <div className="mx-auto w-full max-w-4xl px-4 py-4">
           {messages.length === 0 ? (
             <div className="flex min-h-[60vh] flex-col items-center justify-center">
@@ -751,6 +757,23 @@ export default function ChatPage() {
           )}
         </div>
       </ScrollArea>
+
+        {/* 回到底部按钮 */}
+        {showScrollToBottom && (
+          <Button
+            variant="default"
+            size="icon"
+            className="absolute bottom-4 right-8 h-8 w-8 rounded-full shadow-lg"
+            onClick={() => {
+              bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
+              setUserScrolled(false)
+            }}
+            title="回到底部"
+          >
+            <ArrowDown className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
 
       {/* 输入区域 */}
       <div className="border-t px-4 py-4">
