@@ -33,6 +33,7 @@ const INVOKE_CHANNELS = [
   'backup:delete',
   'settings:get',
   'settings:set',
+  'ollama:check',
   'rag:search',
   'rag:chat-start'
 ]

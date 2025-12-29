@@ -30,17 +30,32 @@ export default function Settings() {
   const config = useStore((s) => s.config)
   const saveConfig = useStore((s) => s.saveConfig)
   const ollamaStatus = useStore((s) => s.ollamaStatus)
-  const checkOllamaStatus = useStore((s) => s.checkOllamaStatus)
   const [form, setForm] = useState(config)
   const [saving, setSaving] = useState(false)
+  const [initialized, setInitialized] = useState(false)
 
   useEffect(() => {
     setForm(config)
   }, [config])
 
   useEffect(() => {
-    void checkOllamaStatus()
-  }, [checkOllamaStatus])
+    if (!initialized) {
+      setInitialized(true)
+      void useStore.getState().checkOllamaStatus()
+    }
+  }, [initialized])
+
+  const handleCheckConnection = async () => {
+    console.log('[Settings] 检测连接按钮被点击')
+    console.log('[Settings] window.api 存在:', !!window.api)
+    console.log('[Settings] window.api.invoke 存在:', !!window.api?.invoke)
+    try {
+      const result = await useStore.getState().checkOllamaStatus()
+      console.log('[Settings] 检测结果:', result)
+    } catch (error) {
+      console.error('[Settings] 检测出错:', error)
+    }
+  }
 
   const update = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -51,7 +66,7 @@ export default function Settings() {
     try {
       await saveConfig(form)
       // 保存后重新检测连接状态
-      await checkOllamaStatus()
+      await handleCheckConnection()
     } finally {
       setSaving(false)
     }
@@ -72,7 +87,7 @@ export default function Settings() {
             <CardTitle>模型设置</CardTitle>
             <div className="flex items-center gap-3">
               <StatusBadge status={ollamaStatus} />
-              <Button variant="outline" size="sm" onClick={() => void checkOllamaStatus()}>
+              <Button variant="outline" size="sm" onClick={handleCheckConnection}>
                 检测连接
               </Button>
             </div>

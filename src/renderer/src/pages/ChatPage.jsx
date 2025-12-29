@@ -28,16 +28,21 @@ export default function ChatPage() {
   const currentKbId = useStore((s) => s.currentKbId)
   const setCurrentKbId = useStore((s) => s.setCurrentKbId)
   const ollamaStatus = useStore((s) => s.ollamaStatus)
-  const checkOllamaStatus = useStore((s) => s.checkOllamaStatus)
 
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [knowledgeBases, setKnowledgeBases] = useState([])
+  const [initialized, setInitialized] = useState(false)
+
+  const checkOllamaStatus = () => useStore.getState().checkOllamaStatus()
 
   // 页面加载时检测 Ollama 状态
   useEffect(() => {
-    void checkOllamaStatus()
-  }, [checkOllamaStatus])
+    if (!initialized) {
+      setInitialized(true)
+      void checkOllamaStatus()
+    }
+  }, [initialized])
 
   const bottomRef = useRef(null)
 

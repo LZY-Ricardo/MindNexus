@@ -28,7 +28,6 @@ function toBuffer(data) {
   return Buffer.from(data)
 }
 
-let initialized = false
 let autoBackupTimer = null
 
 function getBackupRoot() {
@@ -179,11 +178,14 @@ async function deleteFileRecord(uuid) {
 }
 
 export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow } = {}) {
-  if (initialized) return
-  initialized = true
+  console.log('[ipc] setupIPC 被调用')
+
+  // 移除旧处理器（如果存在），然后重新注册
+  // 这样可以支持热重载
   void loadConfig().then(scheduleAutoBackup)
 
   // A. 窗口管理 (win)
+  ipcMain.removeHandler('win:toggle-float')
   ipcMain.handle('win:toggle-float', async () => {
     if (typeof toggleFloatWindow === 'function') {
       return await toggleFloatWindow()
@@ -551,6 +553,7 @@ export function setupIPC({ toggleFloatWindow, setFloatWindowSize, showMainWindow
   })
 
   ipcMain.handle('ollama:check', async () => {
+    console.log('[ipc] ollama:check 处理器被调用')
     const config = getConfig()
     const baseUrl = String(config?.ollamaUrl || 'http://localhost:11434').replace(/\/+$/, '')
     const url = `${baseUrl}/api/tags`

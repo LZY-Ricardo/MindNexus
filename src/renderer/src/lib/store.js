@@ -65,12 +65,17 @@ export const useStore = create((set) => ({
   ollamaStatus: 'unknown', // 'unknown' | 'checking' | 'connected' | 'disconnected'
   setOllamaStatus: (status) => set({ ollamaStatus: status }),
   checkOllamaStatus: async () => {
+    console.log('[store] checkOllamaStatus 被调用')
+    console.log('[store] window.api:', window.api)
+    console.log('[store] window.api?.invoke:', window.api?.invoke)
     set({ ollamaStatus: 'checking' })
     try {
       const result = await window.api?.invoke?.('ollama:check')
+      console.log('[store] IPC 返回结果:', result)
       set({ ollamaStatus: result?.connected ? 'connected' : 'disconnected' })
       return result?.connected || false
-    } catch {
+    } catch (error) {
+      console.error('[store] 检测出错:', error)
       set({ ollamaStatus: 'disconnected' })
       return false
     }
