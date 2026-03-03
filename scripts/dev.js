@@ -4,7 +4,7 @@ const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
 
 const isWindows = process.platform === 'win32'
-const child = spawn('electron-vite', ['dev'], { stdio: 'inherit', env, shell: isWindows })
+const child = spawn('npx', ['electron-vite', 'dev'], { stdio: 'inherit', env, shell: isWindows })
 
 child.on('exit', (code) => process.exit(code ?? 0))
 child.on('error', (err) => {
